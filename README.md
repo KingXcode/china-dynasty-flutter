@@ -39,6 +39,8 @@ flutter analyze
 flutter test
 python3 scripts/verify_assets.py
 flutter build web --release --base-href /china-dynasty-flutter/ --no-web-resources-cdn
+python3 scripts/test_version_web_build.py
+python3 scripts/version_web_build.py build/web
 ```
 
 本地预览发布构建时保留子路径，例如把 `build/web` 放入服务根的 `china-dynasty-flutter/`，再访问该子路径。若部署至域名根目录，改为 `--base-href /`。
@@ -46,6 +48,8 @@ flutter build web --release --base-href /china-dynasty-flutter/ --no-web-resourc
 ## GitHub Pages
 
 `.github/workflows/deploy.yml` 会在新仓库 `main` 更新时检查、测试、构建和发布；PR 仅检查，不部署。仓库 Settings → Pages → Source 选择 GitHub Actions。
+
+发布构建会为 JavaScript、字体、历史和地图资源生成一致的内容版本路径，避免浏览器把新界面与缓存旧资料混用。原资源地址保留，最近被替换的版本保留 15 分钟以覆盖 GitHub Pages 的 10 分钟缓存过渡；地图文件内容不改变。刷新普通入口后加载同一版本的界面和资料，长期开着的标签页请刷新再继续使用。
 
 仅新仓库有此工作流。原 `china-dynasty-timeline` 网站不受影响。
 
