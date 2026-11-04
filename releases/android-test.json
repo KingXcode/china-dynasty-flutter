@@ -2,5 +2,6 @@
   "tag": "v1.2.0-android-test.1",
   "version_name": "1.2.0",
   "version_code": 3,
-  "package_name": "io.github.kingxcode.huaxia_timeline"
+  "package_name": "io.github.kingxcode.huaxia_timeline",
+  "content_commit": "b24f7c66a8c353476e4c43cfea11ec5640f82825"
 }

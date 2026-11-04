@@ -10,12 +10,22 @@ import os
 from pathlib import Path
 import re
 import shutil
+import ssl
 import subprocess
 import zipfile
 
 
 def run(*command):
     return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT)
+
+
+def certificate_sha256(output):
+    """Hash the verified public certificate, independent of CLI digest labels."""
+    certificates = re.findall(
+        r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", output, re.S
+    )
+    assert len(certificates) == 1, "Expected one APK signing certificate"
+    return hashlib.sha256(ssl.PEM_cert_to_DER_cert(certificates[0])).hexdigest()
 
 
 release = json.loads(Path("releases/android-test.json").read_text())
@@ -26,10 +36,12 @@ build_tools = sorted(
     (p for p in (sdk / "build-tools").iterdir() if (p / "apksigner").is_file()),
     key=lambda p: [int(n) for n in re.findall(r"\d+", p.name)],
 )[-1]
-signature = run(str(build_tools / "apksigner"), "verify", "--verbose", "--print-certs", str(apk))
+signature = run(str(build_tools / "apksigner"), "verify", "--verbose", "--print-certs-pem", str(apk))
+print(signature)
 assert "CN=Android Debug" in signature, "Unexpected signing identity; stop for review"
-certificate = re.search(r"Signer #1 certificate SHA-256 digest: (\S+)", signature).group(1)
+certificate = certificate_sha256(signature)
 badging = run(str(build_tools / "aapt"), "dump", "badging", str(apk))
+print(badging)
 assert f"name='{release['package_name']}'" in badging.splitlines()[0], "Wrong application ID"
 assert f"versionCode='{release['version_code']}'" in badging.splitlines()[0], "Wrong version code"
 assert f"versionName='{release['version_name']}'" in badging.splitlines()[0], "Wrong version name"
@@ -83,6 +95,7 @@ info = {
 
 - 华夏脉络 {release['version_name']}（构建号 {release['version_code']}）。
 - 包含最新界面与疆域年份拖动优化，时间轴、地图资料和中文字体均随安装包提供。
+- 已同步近现代时间轴的名称与详情调整。
 - 原 HTML 项目与网站不受影响。
 
 ## 签名说明

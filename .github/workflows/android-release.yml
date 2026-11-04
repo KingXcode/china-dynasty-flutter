@@ -95,17 +95,20 @@ jobs:
           sha256sum -c SHA256SUMS.txt
           gh api "repos/$GH_REPO/releases?per_page=100" > /tmp/existing-releases.json
           gh api "repos/$GH_REPO/git/matching-refs/tags/$RELEASE_TAG" > /tmp/existing-tags.json
+          gh api "repos/$GH_REPO/commits/main" --jq .sha > /tmp/current-main-sha.txt
           python3 - <<'PY'
           import json, os
           tag = os.environ['RELEASE_TAG']
+          assert open('/tmp/current-main-sha.txt').read().strip() == os.environ['SOURCE_SHA'], 'Source changed during build; rebuild the latest main before publishing.'
           releases = json.load(open('/tmp/existing-releases.json'))
           tags = json.load(open('/tmp/existing-tags.json'))
           assert not any(r['tag_name'] == tag for r in releases), 'Release already exists; refusing to overwrite it.'
           assert not any(r['ref'] == 'refs/tags/' + tag for r in tags), 'Tag already exists; refusing to move it.'
           PY
+          VERSION_NAME=$(python3 -c 'import json; print(json.load(open("build-info.json"))["version_name"])')
           gh release create "$RELEASE_TAG" \
             --target "$SOURCE_SHA" \
-            --title "华夏脉络 1.2.0 · Android 测试版" \
+            --title "华夏脉络 $VERSION_NAME · Android 测试版" \
             --prerelease \
             --notes-file release-notes.md \
             ./*.apk SHA256SUMS.txt build-info.json apk-verification.txt
