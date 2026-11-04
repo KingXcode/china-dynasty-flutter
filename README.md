@@ -51,6 +51,13 @@ flutter build web --release --base-href /china-dynasty-flutter/ --no-web-resourc
 
 ## iOS / Android
 
+### Android 测试 APK
+
+[GitHub Releases](https://github.com/KingXcode/china-dynasty-flutter/releases) 提供可直接下载的通用测试 APK（ARM 32 位、ARM 64 位、x86_64）。这是 release 模式优化编译、Android debug/test 签名的安装包，不是商店上架包。临时签名可能随构建变化，后续更新可能需要卸载旧测试版；卸载会清除应用本地数据。
+
+`.github/workflows/android-release.yml` 仅在 `releases/android-test.json` 更新或手动运行时构建。工作流先执行格式、分析、测试和资源校验，再验证 APK 包名、版本、架构、资源和签名，发布为明确标记的 prerelease。已有标签和 Release 不覆盖，发布后重新下载并核对 SHA-256。再次发布请更新清单中的测试版标签，应用版本改变时同步 `pubspec.yaml`；正式发布前仍需配置自己的长期签名。
+
+
 - Android：安装 Android SDK/JDK 17，运行 `flutter doctor` 后使用 `flutter build apk --debug` 做设备测试。正式上架前配置独立发布签名、图标及商店资料，再构建 `appbundle`。模板的 release 配置仍用 debug 签名，不能当正式上架包。
 - iOS：需要 macOS、Xcode 和适配的模拟器/真机。打开 `ios/Runner.xcworkspace`，选择自己的开发团队、Bundle ID/签名，再 `flutter run` 或 `flutter build ipa`。
 - 当前云环境没有 Xcode / iOS 签名环境，也未提供 Android SDK。三平台代码与工程已生成，Web 构建与 Flutter 测试不等于 iOS/Android 真机验收，未声称产生可上架的 IPA/AAB。

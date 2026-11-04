@@ -1,0 +1,115 @@
+name: Build and publish Android test APK
+
+on:
+  push:
+    branches: [main]
+    paths: ['releases/android-test.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-test-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate release identity
+        id: release
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          release = json.loads(Path('releases/android-test.json').read_text())
+          version = re.search(r'^version:\s*(\S+)\s*$', Path('pubspec.yaml').read_text(), re.M).group(1)
+          assert version == f"{release['version_name']}+{release['version_code']}", version
+          assert re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+-android-test\.[0-9]+', release['tag'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print(f"tag={release['tag']}", file=output)
+          PY
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: '3.47.5'
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed lib test
+      - name: Analyze
+        run: flutter analyze --no-pub
+      - name: Test
+        run: flutter test --no-pub
+      - name: Verify bundled history and map data
+        run: python3 scripts/verify_assets.py
+      - name: Build universal APK with existing test signing
+        run: flutter build apk --release --no-pub
+      - name: Verify APK identity, assets and test signature
+        run: python3 scripts/verify_android_apk.py
+      - name: Upload verified release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-test-release
+          path: dist/android/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified release files
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: android-test-release
+          path: dist/android
+      - name: Publish a new test prerelease without overwriting existing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          SOURCE_SHA: ${{ github.sha }}
+        working-directory: dist/android
+        run: |
+          set -euo pipefail
+          sha256sum -c SHA256SUMS.txt
+          gh api "repos/$GH_REPO/releases?per_page=100" > /tmp/existing-releases.json
+          gh api "repos/$GH_REPO/git/matching-refs/tags/$RELEASE_TAG" > /tmp/existing-tags.json
+          python3 - <<'PY'
+          import json, os
+          tag = os.environ['RELEASE_TAG']
+          releases = json.load(open('/tmp/existing-releases.json'))
+          tags = json.load(open('/tmp/existing-tags.json'))
+          assert not any(r['tag_name'] == tag for r in releases), 'Release already exists; refusing to overwrite it.'
+          assert not any(r['ref'] == 'refs/tags/' + tag for r in tags), 'Tag already exists; refusing to move it.'
+          PY
+          gh release create "$RELEASE_TAG" \
+            --target "$SOURCE_SHA" \
+            --title "华夏脉络 1.2.0 · Android 测试版" \
+            --prerelease \
+            --notes-file release-notes.md \
+            ./*.apk SHA256SUMS.txt build-info.json apk-verification.txt
+          mkdir downloaded
+          gh release download "$RELEASE_TAG" --dir downloaded
+          (cd downloaded && sha256sum -c SHA256SUMS.txt)
+          gh release view "$RELEASE_TAG" --json url,tagName,isDraft,isPrerelease,assets
