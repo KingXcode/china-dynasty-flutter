@@ -4,10 +4,13 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'app_style.dart';
 
 const territoryMinimumYear = -221;
 const territoryMaximumYear = 1911;
@@ -131,20 +134,47 @@ class TerritoryYearData {
   final List<TerritoryFeature> active, excluded;
 }
 
-/// Lazy century loading, bounded caches, and failed-request eviction for retry.
+Map<String, dynamic> _decodeTerritoryJson(String source) =>
+    _map(jsonDecode(source));
+
+class _TerritoryRecord {
+  _TerritoryRecord(Map<String, dynamic> json)
+    : id = (json['id'] as num).toInt(),
+      properties = _map(json['properties']),
+      geometry = _map(json['geometry']);
+  final int id;
+  final Map<String, dynamic> properties, geometry;
+  late final String name = properties['Name'] as String;
+  late final int from = (properties['FromYear'] as num).toInt();
+  late final int to = (properties['ToYear'] as num).toInt();
+}
+
+/// Resolved, bounded caches make warm scrubs synchronous. In-flight reads are
+/// separate from the LRU so eviction cannot duplicate a still-running request.
+/// Year results share a source interval (including canonical acceptance changes),
+/// never an invented or interpolated boundary.
 class TerritoryRepository {
   TerritoryRepository({AssetBundle? bundle}) : _bundle = bundle ?? rootBundle;
   final AssetBundle _bundle;
-  final LinkedHashMap<int, Future<Map<String, dynamic>>> _shards =
-      LinkedHashMap();
+  final LinkedHashMap<int, List<_TerritoryRecord>> _shards = LinkedHashMap();
+  final Map<int, Future<List<_TerritoryRecord>>> _pendingShards = {};
+  final LinkedHashMap<int, TerritoryYearData> _years = LinkedHashMap();
+  final Map<int, Future<TerritoryYearData>> _pendingYears = {};
   final LinkedHashMap<int, TerritoryFeature> _features = LinkedHashMap();
   Map<String, dynamic> names = {}, audit = {};
   List<int> changes = [];
   List<TerritoryGeometry> land = [];
   final Map<String, Color> _colors = {};
-  Future<Map<String, dynamic>> _read(String file) async => _map(
-    jsonDecode(await _bundle.loadString('assets/map-data/$file', cache: false)),
-  );
+  Future<Map<String, dynamic>> _read(String file) async {
+    final source = await _bundle.loadString(
+      'assets/map-data/$file',
+      cache: false,
+    );
+    // Native Android/iOS decode off the UI isolate. On Web, cold work is
+    // coalesced by the scrub scheduler; compute uses the current event loop.
+    return compute(_decodeTerritoryJson, source);
+  }
+
   Future<void> initialize() async {
     final data = await Future.wait([
       _read('polities.json'),
@@ -176,50 +206,144 @@ class TerritoryRepository {
   }
 
   Color color(String name) => _colors[name] ?? const Color(0xff547b67);
-  Future<Map<String, dynamic>> _loadCentury(int century) {
+  Future<List<_TerritoryRecord>> _loadCentury(int century) {
     final cached = _shards.remove(century);
     if (cached != null) {
       _shards[century] = cached;
-      return cached;
+      return Future.value(cached);
     }
-    late final Future<Map<String, dynamic>> future;
-    future = _read('era-$century.geojson').catchError((Object error) {
-      if (identical(_shards[century], future)) _shards.remove(century);
-      throw error;
+    return _pendingShards.putIfAbsent(century, () async {
+      try {
+        final data = await _read('era-$century.geojson');
+        final records = _list(data['features'])
+            .map((row) => _TerritoryRecord(_map(row)))
+            .toList(growable: false);
+        _shards[century] = records;
+        while (_shards.length > 4) {
+          _shards.remove(_shards.keys.first);
+        }
+        return records;
+      } finally {
+        _pendingShards.remove(century); // Failed reads remain retryable.
+      }
     });
-    _shards[century] = future;
-    while (_shards.length > 4) {
-      _shards.remove(_shards.keys.first);
-    }
-    return future;
   }
 
-  Future<TerritoryYearData> loadYear(int year) async {
-    if (!territoryValidYear(year)) throw ArgumentError.value(year, 'year');
-    final data = await _loadCentury(territoryCentury(year));
-    final active = <TerritoryFeature>[], excluded = <TerritoryFeature>[];
-    for (final row in _list(data['features'])) {
-      final json = _map(row), properties = _map(row['properties']);
-      final from = (properties['FromYear'] as num).toInt(),
-          to = (properties['ToYear'] as num).toInt();
-      final name = properties['Name'] as String;
-      if (from > year || to < year || !names.containsKey(name)) continue;
-      final id = (json['id'] as num).toInt();
-      final feature =
-          _features.remove(id) ??
-          TerritoryFeature(
-            id,
-            properties,
-            TerritoryGeometry.fromJson(_map(json['geometry'])),
-          );
-      _features[id] = feature;
-      (territoryAcceptedAt(name, year, audit) ? active : excluded).add(feature);
+  int _intervalKey(int year) {
+    // Every source FromYear/ToYear+1 and canonical acceptance boundary is in
+    // changes. Warnings and chronology text are evaluated for the exact year.
+    var low = 0, high = changes.length;
+    while (low < high) {
+      final middle = (low + high) ~/ 2;
+      if (changes[middle] <= year) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
     }
-    while (_features.length > 160) {
-      _features.remove(_features.keys.first);
+    return low == 0 ? year : changes[low - 1];
+  }
+
+  TerritoryYearData _rememberYear(int year, TerritoryYearData data) {
+    final key = _intervalKey(year);
+    _years.remove(key);
+    _years[key] = data;
+    while (_years.length > 96) {
+      _years.remove(_years.keys.first);
+    }
+    return data;
+  }
+
+  /// No I/O, futures, or geometry projection in a pointer-event cache hit.
+  TerritoryYearData? cachedYear(int year) {
+    if (!territoryValidYear(year)) return null;
+    final key = _intervalKey(year);
+    final cached = _years.remove(key);
+    if (cached != null) {
+      _years[key] = cached;
+      return cached;
+    }
+    final century = territoryCentury(year);
+    final records = _shards.remove(century);
+    if (records == null) return null;
+    _shards[century] = records;
+    final active = <TerritoryFeature>[], excluded = <TerritoryFeature>[];
+    for (final record in records) {
+      if (record.from > year ||
+          record.to < year ||
+          !names.containsKey(record.name)) {
+        continue;
+      }
+      final feature = _features[record.id];
+      if (feature == null) return null;
+      (territoryAcceptedAt(record.name, year, audit) ? active : excluded).add(
+        feature,
+      );
     }
     active.sort((a, b) => b.area.compareTo(a.area));
-    return TerritoryYearData(active, excluded);
+    return _rememberYear(year, TerritoryYearData(active, excluded));
+  }
+
+  Future<TerritoryYearData> loadYear(int year) {
+    if (!territoryValidYear(year)) {
+      return Future.error(ArgumentError.value(year, 'year'));
+    }
+    final cached = cachedYear(year);
+    if (cached != null) return Future.value(cached);
+    final key = _intervalKey(year);
+    return _pendingYears.putIfAbsent(key, () async {
+      try {
+        final records = await _loadCentury(territoryCentury(year));
+        final active = <TerritoryFeature>[], excluded = <TerritoryFeature>[];
+        final work = Stopwatch()..start();
+        for (final record in records) {
+          if (record.from > year ||
+              record.to < year ||
+              !names.containsKey(record.name)) {
+            continue;
+          }
+          final feature =
+              _features.remove(record.id) ??
+              TerritoryFeature(
+                record.id,
+                record.properties,
+                TerritoryGeometry.fromJson(record.geometry),
+              );
+          _features[record.id] = feature;
+          (territoryAcceptedAt(record.name, year, audit) ? active : excluded)
+              .add(feature);
+          // Bound cold projection batches, allowing touch/paint between them.
+          if (work.elapsedMilliseconds >= 4) {
+            await Future<void>.delayed(Duration.zero);
+            work.reset();
+          }
+        }
+        while (_features.length > 160) {
+          _features.remove(_features.keys.first);
+        }
+        active.sort((a, b) => b.area.compareTo(a.area));
+        return _rememberYear(year, TerritoryYearData(active, excluded));
+      } finally {
+        _pendingYears.remove(key);
+      }
+    });
+  }
+
+  /// Called only after an idle pause, never once per slider tick. Prefetch
+  /// failures are quiet and evicted; a later foreground load can retry.
+  Future<void> prefetchAdjacent(int year) async {
+    final century = territoryCentury(year);
+    for (final next in [century - 100, century + 100]) {
+      if (next < territoryCentury(territoryMinimumYear) ||
+          next > territoryCentury(territoryMaximumYear)) {
+        continue;
+      }
+      try {
+        await _loadCentury(next);
+      } catch (_) {
+        // Optional warmup must not change the displayed year's error state.
+      }
+    }
   }
 
   List<String> warnings(
@@ -282,11 +406,12 @@ class _TerritoryPageState extends State<TerritoryPage>
     with WidgetsBindingObserver {
   late final TerritoryRepository _repository;
   int _year = 1142, _requestVersion = 0;
+  int? _displayedYear, _loadingYear;
   bool _ready = false, _loading = true, _error = false, _playing = false;
   bool _showWarnings = false, _showMethod = false;
   List<TerritoryFeature> _active = [], _excluded = [];
   TerritoryFeature? _selected;
-  Timer? _timer;
+  Timer? _timer, _scrubTimer, _prefetchTimer;
   @override
   void initState() {
     super.initState();
@@ -316,6 +441,8 @@ class _TerritoryPageState extends State<TerritoryPage>
   void dispose() {
     ++_requestVersion;
     _timer?.cancel();
+    _scrubTimer?.cancel();
+    _prefetchTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -329,6 +456,7 @@ class _TerritoryPageState extends State<TerritoryPage>
       _active = [];
       _excluded = [];
       _selected = null;
+      _displayedYear = null;
     });
     try {
       await _repository.initialize();
@@ -350,33 +478,98 @@ class _TerritoryPageState extends State<TerritoryPage>
     if (_playing && mounted) setState(() => _playing = false);
   }
 
-  Future<bool> _setYear(int next, {bool keepPlaying = false}) async {
-    if (!territoryValidYear(next) || !_ready) return false;
-    if (!keepPlaying) _stopPlaying();
-    final version = ++_requestVersion;
+  void _warmNearby(int year) {
+    _prefetchTimer?.cancel();
+    _prefetchTimer = Timer(const Duration(milliseconds: 400), () {
+      if (mounted && _year == year && !_loading) {
+        unawaited(_repository.prefetchAdjacent(year));
+      }
+    });
+  }
+
+  void _commitYear(int year, TerritoryYearData data) {
+    setState(() {
+      _year = year;
+      _displayedYear = year;
+      _active = data.active;
+      _excluded = data.excluded;
+      _selected = null;
+      _loading = false;
+      _loadingYear = null;
+      _error = false;
+    });
+    _warmNearby(year);
+  }
+
+  void _scrubYear(double value) {
+    final next = territorySliderYear(value.round());
+    if (!territoryValidYear(next) || !_ready || next == _year) return;
+    _stopPlaying();
+    _scrubTimer?.cancel();
+    _prefetchTimer?.cancel();
+    final version = ++_requestVersion; // Invalidate old success AND old errors.
+    _loadingYear = null;
+    final cached = _repository.cachedYear(next);
+    if (cached != null) {
+      _commitYear(next, cached);
+      return;
+    }
     setState(() {
       _year = next;
       _loading = true;
       _error = false;
-      _active = [];
-      _excluded = [];
-      _selected = null;
     });
+    // Move the thumb immediately; only load the final cold target after the
+    // user's brief pause. onChangeEnd flushes without waiting for this timer.
+    _scrubTimer = Timer(const Duration(milliseconds: 90), () {
+      _scrubTimer = null;
+      unawaited(_loadYear(next, version));
+    });
+  }
+
+  Future<bool> _setYear(int next, {bool keepPlaying = false}) async {
+    if (!territoryValidYear(next) || !_ready) return false;
+    if (!keepPlaying) _stopPlaying();
+    _scrubTimer?.cancel();
+    _scrubTimer = null;
+    _prefetchTimer?.cancel();
+    if (!_error &&
+        (_displayedYear == next && !_loading ||
+            _loadingYear == next && _year == next)) {
+      return true;
+    }
+    final version = ++_requestVersion;
+    final cached = _repository.cachedYear(next);
+    if (cached != null) {
+      _commitYear(next, cached);
+      return true;
+    }
+    setState(() {
+      _year = next;
+      _loading = true;
+      _error = false;
+    });
+    return _loadYear(next, version);
+  }
+
+  Future<bool> _loadYear(int next, int version) async {
+    _loadingYear = next;
     try {
       final data = await _repository.loadYear(next);
       if (!mounted || version != _requestVersion) return false;
-      setState(() {
-        _active = data.active;
-        _excluded = data.excluded;
-        _loading = false;
-      });
+      _commitYear(next, data);
       return true;
     } catch (_) {
       if (!mounted || version != _requestVersion) return false;
       _stopPlaying();
       setState(() {
         _loading = false;
+        _loadingYear = null;
         _error = true;
+        _active = [];
+        _excluded = [];
+        _selected = null;
+        _displayedYear = null;
       });
       return false;
     }
@@ -430,15 +623,12 @@ class _TerritoryPageState extends State<TerritoryPage>
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 1000;
+    final shownYear = _displayedYear ?? _year;
     final timeline = widget.dynasties.where(
-      (r) => (r['start'] as num) <= _year && (r['end'] as num) >= _year,
+      (r) => (r['start'] as num) <= shownYear && (r['end'] as num) >= shownYear,
     );
     return DefaultTextStyle.merge(
-      style: TextStyle(
-        fontSize: 15,
-        height: 1.35,
-        color: CupertinoColors.label.resolveFrom(context),
-      ),
+      style: TextStyle(fontSize: 15, height: 1.35, color: AppColors.ink),
       child: SingleChildScrollView(
         key: const PageStorageKey('territory-scroll'),
         padding: EdgeInsets.fromLTRB(wide ? 28 : 16, 12, wide ? 28 : 16, 28),
@@ -448,18 +638,12 @@ class _TerritoryPageState extends State<TerritoryPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 4, bottom: 10),
-                  child: Text(
-                    '秦至清 · 前221—1911',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: CupertinoColors.secondaryLabel.resolveFrom(
-                        context,
-                      ),
-                    ),
-                  ),
+                const AppPageIntro(
+                  index: '02 / 山河探索',
+                  title: '山河之间',
+                  subtitle: '拖动年份，探索疆域资料。秦至清 · 前221—1911',
                 ),
+                const SizedBox(height: 18),
                 if (wide)
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,8 +656,8 @@ class _TerritoryPageState extends State<TerritoryPage>
                 else
                   _mapCard(),
                 const SizedBox(height: 14),
-                _section('本年资料提示', [
-                  if (_loading)
+                _section('资料提示 · ${territoryYearText(shownYear)}', [
+                  if (_loading && _displayedYear == null)
                     Text('正在读取${territoryYearText(_year)}的来源记录…')
                   else if (_error)
                     const Text('加载失败，当前不显示疆域。年表仍可阅读，请重试后再判断资料覆盖。')
@@ -508,7 +692,7 @@ class _TerritoryPageState extends State<TerritoryPage>
                     ),
                     if (_showWarnings)
                       ..._repository
-                          .warnings(_year, _active, _excluded)
+                          .warnings(shownYear, _active, _excluded)
                           .map(
                             (text) => Padding(
                               padding: const EdgeInsets.only(top: 10),
@@ -522,27 +706,28 @@ class _TerritoryPageState extends State<TerritoryPage>
                 ]),
                 if (!wide) ...[const SizedBox(height: 14), _polityPanel()],
                 const SizedBox(height: 14),
-                _section('同期年表 · ${timeline.length}', [
-                  Text(
-                    '年表与地图来源不同，以下政权不一定有独立轮廓。',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: CupertinoColors.secondaryLabel.resolveFrom(
-                        context,
+                _section(
+                  '${territoryYearText(shownYear)} · 同期年表 ${timeline.length}',
+                  [
+                    Text(
+                      '年表与地图来源不同，以下政权不一定有独立轮廓。',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.secondary,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  ...timeline.map(
-                    (record) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 5),
-                      child: Text(
-                        '${record['name']}  ${_period((record['start'] as num).toInt(), (record['end'] as num).toInt())}',
-                        style: const TextStyle(fontSize: 14),
+                    const SizedBox(height: 10),
+                    ...timeline.map(
+                      (record) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 5),
+                        child: Text(
+                          '${record['name']}  ${_period((record['start'] as num).toInt(), (record['end'] as num).toInt())}',
+                          style: const TextStyle(fontSize: 14),
+                        ),
                       ),
                     ),
-                  ),
-                ]),
+                  ],
+                ),
                 const SizedBox(height: 14),
                 _section('来源与方法', [
                   const Text(
@@ -648,10 +833,9 @@ class _TerritoryPageState extends State<TerritoryPage>
   Widget _mapCard() => Container(
     clipBehavior: Clip.antiAlias,
     decoration: BoxDecoration(
-      color: CupertinoColors.secondarySystemGroupedBackground.resolveFrom(
-        context,
-      ),
-      borderRadius: BorderRadius.circular(14),
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: AppColors.line),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -666,12 +850,12 @@ class _TerritoryPageState extends State<TerritoryPage>
                   alignment: Alignment.centerLeft,
                   onPressed: _ready ? _jumpToYear : null,
                   child: Text(
-                    territoryYearText(_year),
+                    territoryYearText(_displayedYear ?? _year),
                     key: const Key('territory-year'),
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w600,
-                      color: CupertinoColors.label.resolveFrom(context),
+                      color: AppColors.ink,
                     ),
                   ),
                 ),
@@ -700,10 +884,40 @@ class _TerritoryPageState extends State<TerritoryPage>
                   onSelected: _selectFeature,
                 ),
               ),
-              if (_loading || _error)
+              if (_loading && _displayedYear != null)
+                Positioned(
+                  top: 8,
+                  left: 10,
+                  right: 10,
+                  child: IgnorePointer(
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Container(
+                        key: const Key('territory-pending'),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface.withValues(alpha: .96),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.line),
+                        ),
+                        child: Text(
+                          '正在切换至${territoryYearText(_year)} · 地图仍为${territoryYearText(_displayedYear!)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if ((_loading && _displayedYear == null) || _error)
                 Positioned.fill(
                   child: ColoredBox(
-                    color: const Color(0xeee7efec),
+                    color: AppColors.canvas.withValues(alpha: .96),
                     child: Center(
                       child: Padding(
                         padding: const EdgeInsets.all(24),
@@ -761,7 +975,9 @@ class _TerritoryPageState extends State<TerritoryPage>
                     max: (territoryMaximumYear - 1).toDouble(),
                     divisions: territoryMaximumYear - 1 - territoryMinimumYear,
                     value: territoryYearSlider(_year).toDouble(),
-                    onChanged: _ready
+                    onChangeStart: _ready ? (_) => _stopPlaying() : null,
+                    onChanged: _ready ? _scrubYear : null,
+                    onChangeEnd: _ready
                         ? (value) =>
                               _setYear(territorySliderYear(value.round()))
                         : null,
@@ -845,14 +1061,13 @@ class _TerritoryPageState extends State<TerritoryPage>
           padding: const EdgeInsets.fromLTRB(14, 9, 14, 10),
           child: Text(
             _loading
-                ? '正在读取来源区间'
+                ? _displayedYear == null
+                      ? '正在读取来源区间'
+                      : '目标 ${territoryYearText(_year)} · 保留上一幅地图'
                 : _error
                 ? '当前资料未加载'
                 : '${_active.length} 条来源记录 · 非逐年复原',
-            style: TextStyle(
-              fontSize: 12,
-              color: CupertinoColors.secondaryLabel.resolveFrom(context),
-            ),
+            style: TextStyle(fontSize: 12, color: AppColors.secondary),
           ),
         ),
       ],
@@ -869,10 +1084,9 @@ class _TerritoryPageState extends State<TerritoryPage>
       Container(
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: CupertinoColors.secondarySystemGroupedBackground.resolveFrom(
-            context,
-          ),
-          borderRadius: BorderRadius.circular(14),
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: AppColors.line),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -880,7 +1094,7 @@ class _TerritoryPageState extends State<TerritoryPage>
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
               child: Text(
-                '本年来源记录 · ${_active.length}',
+                '${_displayedYear == null ? '本年' : territoryYearText(_displayedYear!)}来源记录 · ${_active.length}',
                 style: const TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w600,
@@ -901,7 +1115,7 @@ class _TerritoryPageState extends State<TerritoryPage>
               CupertinoListTile(
                 key: ValueKey('territory-record-${_active[i].id}'),
                 backgroundColor: _selected?.id == _active[i].id
-                    ? CupertinoColors.systemBlue.withValues(alpha: .07)
+                    ? AppColors.accentSoft
                     : null,
                 leading: Container(
                   width: 12,
@@ -939,10 +1153,7 @@ class _TerritoryPageState extends State<TerritoryPage>
       [
         Text(
           '来源原名：${feature.name}',
-          style: TextStyle(
-            fontSize: 13,
-            color: CupertinoColors.secondaryLabel.resolveFrom(context),
-          ),
+          style: TextStyle(fontSize: 13, color: AppColors.secondary),
         ),
         const SizedBox(height: 12),
         Text(
@@ -951,7 +1162,7 @@ class _TerritoryPageState extends State<TerritoryPage>
         ),
         const SizedBox(height: 8),
         Text(
-          '当前筛选${territoryYearText(_year)}。此区间内沿用同一来源轮廓，不能据此推断逐年真实边界。',
+          '当前地图${territoryYearText(_displayedYear ?? _year)}。此区间内沿用同一来源轮廓，不能据此推断逐年真实边界。',
           style: const TextStyle(fontSize: 14),
         ),
         if (ranges.isNotEmpty) ...[
@@ -976,10 +1187,7 @@ class _TerritoryPageState extends State<TerritoryPage>
         const SizedBox(height: 12),
         Text(
           '固定来源 #${feature.id} · Cliopatria v0.2.1 · POLITY',
-          style: TextStyle(
-            fontSize: 12,
-            color: CupertinoColors.secondaryLabel.resolveFrom(context),
-          ),
+          style: TextStyle(fontSize: 12, color: AppColors.secondary),
         ),
         const _SourceLink(label: '查看固定版本来源', url: territorySourceUrl),
       ],
@@ -995,10 +1203,9 @@ class _TerritoryPageState extends State<TerritoryPage>
       Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: CupertinoColors.secondarySystemGroupedBackground.resolveFrom(
-            context,
-          ),
-          borderRadius: BorderRadius.circular(14),
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: AppColors.line),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1036,10 +1243,8 @@ class _TerritoryPageState extends State<TerritoryPage>
 class _Hairline extends StatelessWidget {
   const _Hairline();
   @override
-  Widget build(BuildContext context) => Container(
-    height: .5,
-    color: CupertinoColors.separator.resolveFrom(context),
-  );
+  Widget build(BuildContext context) =>
+      Container(height: .5, color: AppColors.line);
 }
 
 class _MapIconButton extends StatelessWidget {
@@ -1239,6 +1444,7 @@ class _TerritoryMapState extends State<_TerritoryMap> {
   Size _size = Size.zero;
   bool _labels = true;
   final FocusNode _focus = FocusNode();
+  final Map<String, TextPainter> _labelPainters = {};
   double get _fit => math.min(_size.width / 1000, _size.height / 780);
   double get _scale => _fit * _zoom;
   Offset get _padding =>
@@ -1248,6 +1454,9 @@ class _TerritoryMapState extends State<_TerritoryMap> {
   @override
   void dispose() {
     _focus.dispose();
+    for (final painter in _labelPainters.values) {
+      painter.dispose();
+    }
     super.dispose();
   }
 
@@ -1358,6 +1567,7 @@ class _TerritoryMapState extends State<_TerritoryMap> {
                             scale: _scale,
                             origin: _origin,
                             labels: _labels,
+                            labelPainters: _labelPainters,
                           ),
                           child: const SizedBox.expand(),
                         ),
@@ -1443,6 +1653,7 @@ class _MapPainter extends CustomPainter {
     required this.scale,
     required this.origin,
     required this.labels,
+    required this.labelPainters,
   });
   final List<TerritoryGeometry> land;
   final List<TerritoryFeature> active;
@@ -1452,6 +1663,7 @@ class _MapPainter extends CustomPainter {
   final double scale;
   final Offset origin;
   final bool labels;
+  final Map<String, TextPainter> labelPainters;
   @override
   void paint(Canvas canvas, Size size) {
     if (scale <= 0) return;
@@ -1525,22 +1737,25 @@ class _MapPainter extends CustomPainter {
         if (center == null || f.geometry.labelArea < 700) continue;
         final point = center * scale + origin;
         final name = label(f.name).replaceAll(RegExp(r'〔.*?〕|（.*?）'), '');
-        final text = TextPainter(
-          text: TextSpan(
-            text: name,
-            style: const TextStyle(
-              fontFamily: 'NotoSansSC',
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Color(0xff394135),
-              shadows: [
-                Shadow(color: Color(0xfffffaf0), blurRadius: 3),
-                Shadow(color: Color(0xfffffaf0), blurRadius: 3),
-              ],
+        final text = labelPainters.putIfAbsent(
+          name,
+          () => TextPainter(
+            text: TextSpan(
+              text: name,
+              style: const TextStyle(
+                fontFamily: 'NotoSansSC',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xff394135),
+                shadows: [
+                  Shadow(color: Color(0xfffffaf0), blurRadius: 3),
+                  Shadow(color: Color(0xfffffaf0), blurRadius: 3),
+                ],
+              ),
             ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout(maxWidth: 140);
+            textDirection: TextDirection.ltr,
+          )..layout(maxWidth: 140),
+        );
         final bounds = Rect.fromCenter(
           center: point,
           width: text.width + 6,

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 
 import 'history.dart';
+import 'app_style.dart';
 
 const _palette = <Color>[
   Color(0xffa2573d),
@@ -18,9 +19,9 @@ const _palette = <Color>[
   Color(0xff7c8a90),
   Color(0xffae7250),
 ];
-const _ink = Color(0xff24262b);
-const _secondary = Color(0xff797b83);
-const _separator = Color(0xffe9e9ed);
+const _ink = AppColors.ink;
+const _secondary = AppColors.secondary;
+const _separator = AppColors.line;
 
 int _yearFromOrdinal(int value) => value <= 0 ? value - 1 : value;
 
@@ -325,7 +326,7 @@ class _DesktopTimelineGraphState extends State<DesktopTimelineGraph> {
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: CupertinoColors.white,
+        color: AppColors.surface,
         border: Border.all(color: _separator),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -339,7 +340,7 @@ class _DesktopTimelineGraphState extends State<DesktopTimelineGraph> {
                 const Icon(
                   CupertinoIcons.chart_bar_alt_fill,
                   size: 18,
-                  color: Color(0xff526d65),
+                  color: AppColors.accent,
                 ),
                 const SizedBox(width: 9),
                 const Text(
@@ -520,8 +521,8 @@ class _TimelineLabelState extends State<_TimelineLabel> {
     final background = highlighted
         ? entry.color.withValues(alpha: .11)
         : _hovered
-        ? const Color(0xfff5f5f7)
-        : CupertinoColors.white;
+        ? AppColors.accentSoft
+        : AppColors.surface;
     return Semantics(
       label:
           '${entry.record['name']}，${dateRange(entry.record)}。'
@@ -562,7 +563,7 @@ class _TimelineLabelState extends State<_TimelineLabel> {
                     fontSize: 13,
                     height: 1.35,
                     fontWeight: FontWeight.w600,
-                    color: highlighted ? entry.color : _ink,
+                    color: _ink,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -644,7 +645,7 @@ class _TimelinePainter extends CustomPainter {
       ..strokeWidth = .65;
     canvas.drawRect(
       Rect.fromLTWH(0, 0, 77, size.height),
-      Paint()..color = const Color(0xfffafafb),
+      Paint()..color = AppColors.canvas,
     );
     _text(
       canvas,
@@ -662,7 +663,7 @@ class _TimelinePainter extends CustomPainter {
         '支流 ${(lane + 1).toString().padLeft(2, '0')}',
         Offset(x + 14, 25),
         size: 10,
-        color: const Color(0xff9b9da4),
+        color: AppColors.subtle,
       );
     }
     for (final year in layout.scale.ticks) {
@@ -707,7 +708,7 @@ class _TimelinePainter extends CustomPainter {
         canvas.drawCircle(
           Offset(x, entry.endY),
           2.7,
-          Paint()..color = CupertinoColors.white,
+          Paint()..color = AppColors.surface,
         );
         canvas.drawCircle(
           Offset(x, entry.endY),
@@ -724,7 +725,7 @@ class _TimelinePainter extends CustomPainter {
         canvas.drawCircle(
           Offset(x, entry.startY),
           4.4,
-          Paint()..color = CupertinoColors.white,
+          Paint()..color = AppColors.surface,
         );
         canvas.drawCircle(
           Offset(x, entry.startY),
@@ -742,10 +743,10 @@ class _TimelinePainter extends CustomPainter {
       final mid = (top + bottom) / 2;
       canvas.drawRect(
         Rect.fromLTRB(78, top, size.width, bottom),
-        Paint()..color = const Color(0xfff7f7fa),
+        Paint()..color = AppColors.canvas,
       );
       final foldPaint = Paint()
-        ..color = const Color(0xffd2d3d9)
+        ..color = AppColors.line
         ..style = PaintingStyle.stroke
         ..strokeWidth = .8;
       final path = Path();
@@ -770,7 +771,7 @@ class _TimelinePainter extends CustomPainter {
           Rect.fromLTWH(111, mid - 12, labelPaint.width + 20, 24),
           const Radius.circular(12),
         ),
-        Paint()..color = const Color(0xfff7f7fa),
+        Paint()..color = AppColors.canvas,
       );
       labelPaint.paint(canvas, Offset(121, mid - labelPaint.height / 2));
     }

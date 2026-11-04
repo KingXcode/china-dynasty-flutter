@@ -1,7 +1,7 @@
 name: huaxia_timeline
 description: 华夏脉络，中国历史朝代时间轴与疆域资料浏览器。
 publish_to: none
-version: 1.1.0+2
+version: 1.2.0+3
 environment:
   sdk: '>=3.13.4 <4.0.0'
   flutter: '>=3.47.5'

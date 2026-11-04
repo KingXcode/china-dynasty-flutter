@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'history.dart';
+import 'app_style.dart';
 import 'desktop_timeline.dart';
 
 const timelineColors = [
@@ -25,9 +26,21 @@ class AppGroupedSection extends StatelessWidget {
   const AppGroupedSection({super.key, required this.child});
   final Widget child;
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(14),
-    child: ColoredBox(color: CupertinoColors.white, child: child),
+  Widget build(BuildContext context) => Container(
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: AppColors.line, width: .8),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x04172d25),
+          blurRadius: 18,
+          offset: Offset(0, 5),
+        ),
+      ],
+    ),
+    child: child,
   );
 }
 
@@ -42,7 +55,7 @@ class AppSectionHeading extends StatelessWidget {
       style: const TextStyle(
         fontSize: 15,
         fontWeight: FontWeight.w600,
-        color: CupertinoColors.secondaryLabel,
+        color: AppColors.secondary,
       ),
     ),
   );
@@ -158,7 +171,7 @@ class _TimelinePageState extends State<TimelinePage> {
                       '关闭时压缩没有起讫节点的长时段；无论哪种模式，同一年始终对齐。',
                       style: TextStyle(
                         fontSize: 13,
-                        color: CupertinoColors.secondaryLabel,
+                        color: AppColors.secondary,
                         height: 1.5,
                       ),
                     ),
@@ -222,6 +235,8 @@ class _TimelinePageState extends State<TimelinePage> {
     final desktop = MediaQuery.sizeOf(context).width >= 1000;
     final segmented = CupertinoSlidingSegmentedControl<bool>(
       groupValue: _list,
+      backgroundColor: AppColors.accentSoft,
+      thumbColor: AppColors.surface,
       onValueChanged: (value) {
         if (value != null) setState(() => _list = value);
       },
@@ -239,6 +254,10 @@ class _TimelinePageState extends State<TimelinePage> {
     final search = CupertinoSearchTextField(
       controller: _search,
       placeholder: '搜索朝代、政权或地区',
+      backgroundColor: AppColors.accentSoft,
+      borderRadius: BorderRadius.circular(14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      itemColor: AppColors.secondary,
       style: const TextStyle(fontFamily: 'NotoSansSC', fontSize: 15),
       onChanged: (v) => _change(() => _query = v),
       onSuffixTap: () {
@@ -263,36 +282,19 @@ class _TimelinePageState extends State<TimelinePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        '历史脉络',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: .2,
-                        ),
-                      ),
-                    ),
-                    if (desktop)
-                      Text(
-                        '102 项记录 · 4,000 余年',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: CupertinoColors.secondaryLabel,
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  '同一个时代，不同的历史支流。',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: CupertinoColors.secondaryLabel,
-                  ),
+                AppPageIntro(
+                  index: '01 / 时间探索',
+                  title: '历史脉络',
+                  subtitle: '沿着时间线，发现历史的不同支流。',
+                  trailing: desktop
+                      ? Text(
+                          '${data.dynasties.length} 项记录 · 4,000 余年',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.secondary,
+                          ),
+                        )
+                      : null,
                 ),
                 const SizedBox(height: 18),
                 if (desktop)
@@ -316,7 +318,7 @@ class _TimelinePageState extends State<TimelinePage> {
                         alignment: Alignment.centerLeft,
                         child: CupertinoButton(
                           padding: const EdgeInsets.symmetric(vertical: 8),
-                          minimumSize: const Size(44, 40),
+                          minimumSize: const Size(44, 44),
                           onPressed: _pickEra,
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -342,17 +344,20 @@ class _TimelinePageState extends State<TimelinePage> {
                       '${records.length} 项',
                       style: const TextStyle(
                         fontSize: 12,
-                        color: CupertinoColors.secondaryLabel,
+                        color: AppColors.secondary,
                       ),
                     ),
                     const SizedBox(width: 8),
                     CupertinoButton(
                       padding: const EdgeInsets.all(8),
-                      minimumSize: const Size(40, 40),
+                      minimumSize: const Size(44, 44),
                       onPressed: _displayOptions,
+                      color: AppColors.accentSoft,
+                      borderRadius: BorderRadius.circular(12),
                       child: const Icon(
                         CupertinoIcons.slider_horizontal_3,
-                        size: 22,
+                        size: 20,
+                        semanticLabel: '显示设置',
                       ),
                     ),
                   ],
@@ -365,7 +370,7 @@ class _TimelinePageState extends State<TimelinePage> {
                         '没有找到对应记录\n试试其他名称或地域',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: CupertinoColors.secondaryLabel,
+                          color: AppColors.secondary,
                           height: 1.8,
                         ),
                       ),
@@ -435,14 +440,22 @@ class _TimelinePageState extends State<TimelinePage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Icon(
-                                        CupertinoIcons.hand_draw,
-                                        color: CupertinoColors.systemBlue,
-                                        size: 28,
+                                      Text(
+                                        '从这里开始探索',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          letterSpacing: 1.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.accent,
+                                        ),
+                                      ),
+                                      SizedBox(height: 24),
+                                      ExcludeSemantics(
+                                        child: AppOrbitMark(size: 62),
                                       ),
                                       SizedBox(height: 16),
                                       Text(
-                                        '点选一个朝代',
+                                        '选一个朝代，出发',
                                         style: TextStyle(
                                           fontSize: 20,
                                           fontWeight: FontWeight.w600,
@@ -450,11 +463,11 @@ class _TimelinePageState extends State<TimelinePage> {
                                       ),
                                       SizedBox(height: 10),
                                       Text(
-                                        '查看完整纪年、地域、资料来源与同期政权。',
+                                        '点选时间轴上的名字，了解它的年代、地域，以及同时存在的政权。',
                                         style: TextStyle(
                                           fontSize: 14,
                                           height: 1.7,
-                                          color: CupertinoColors.secondaryLabel,
+                                          color: AppColors.secondary,
                                         ),
                                       ),
                                       SizedBox(height: 20),
@@ -463,7 +476,7 @@ class _TimelinePageState extends State<TimelinePage> {
                                         style: TextStyle(
                                           fontSize: 12,
                                           height: 1.7,
-                                          color: CupertinoColors.tertiaryLabel,
+                                          color: AppColors.subtle,
                                         ),
                                       ),
                                     ],
@@ -522,7 +535,7 @@ class _TimelinePageState extends State<TimelinePage> {
                     '紧凑模式各段比例不同，同年仍对齐。史前文化与传说另列于阅读说明。年代、范围与异说详见每项记录。',
                     style: TextStyle(
                       fontSize: 11,
-                      color: CupertinoColors.secondaryLabel,
+                      color: AppColors.secondary,
                       height: 1.7,
                     ),
                   ),
@@ -544,13 +557,14 @@ class _ChartCaption extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     decoration: const BoxDecoration(
-      border: Border(bottom: BorderSide(color: Color(0xffe5e5ea), width: .5)),
+      color: AppColors.surface,
+      border: Border(bottom: BorderSide(color: AppColors.line, width: .8)),
     ),
     child: Text(
       '${exact ? '等比例刻度' : '紧凑刻度'} · 同年对齐 · 点按查看${era ? ' · 边界箭头表示超出本时代' : ''}',
       style: const TextStyle(
         fontSize: 11,
-        color: CupertinoColors.secondaryLabel,
+        color: AppColors.secondary,
         height: 1.5,
       ),
     ),
@@ -675,7 +689,7 @@ class TimelineGraph extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 minimumSize: Size.zero,
                 borderRadius: BorderRadius.circular(7),
-                color: CupertinoColors.white,
+                color: AppColors.surface,
                 onPressed: () => onSelected(item.record),
                 child: Row(
                   children: [
@@ -700,7 +714,7 @@ class TimelineGraph extends StatelessWidget {
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: CupertinoColors.label,
+                              color: AppColors.ink,
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -710,7 +724,7 @@ class TimelineGraph extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 10,
-                              color: CupertinoColors.secondaryLabel,
+                              color: AppColors.secondary,
                             ),
                           ),
                         ],
@@ -719,7 +733,7 @@ class TimelineGraph extends StatelessWidget {
                     const Icon(
                       CupertinoIcons.chevron_right,
                       size: 11,
-                      color: CupertinoColors.tertiaryLabel,
+                      color: AppColors.subtle,
                     ),
                   ],
                 ),
@@ -740,7 +754,7 @@ class TimelinePainter extends CustomPainter {
     String text,
     Offset offset, {
     double size = 10,
-    Color color = const Color(0xff8e8e93),
+    Color color = AppColors.secondary,
     double width = 120,
   }) {
     final p = TextPainter(
@@ -775,7 +789,7 @@ class TimelinePainter extends CustomPainter {
           Offset(44, y),
           Offset(size.width, y),
           Paint()
-            ..color = const Color(0xffe5e5ea)
+            ..color = AppColors.line
             ..strokeWidth = .7,
         );
         label(canvas, yearText(year), Offset(0, y - 6), width: 44, size: 9);
@@ -810,11 +824,7 @@ class TimelinePainter extends CustomPainter {
       } else {
         canvas.drawLine(Offset(x, a), Offset(x, b), paint);
       }
-      canvas.drawCircle(
-        Offset(x, a),
-        3.1,
-        Paint()..color = const Color(0xffffffff),
-      );
+      canvas.drawCircle(Offset(x, a), 3.1, Paint()..color = AppColors.surface);
       canvas.drawCircle(Offset(x, a), 3.1, paint..strokeWidth = 1.4);
       canvas.drawCircle(Offset(x, b), 2.3, Paint()..color = c);
       final connector = Path()
@@ -901,25 +911,45 @@ class DynastyDetailsBody extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const Text(
+          '历史档案',
+          style: TextStyle(
+            fontSize: 10,
+            letterSpacing: 1.6,
+            color: AppColors.accent,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
         Text(
           '${record['name']}',
-          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w700),
+          style: const TextStyle(
+            fontSize: 25,
+            height: 1.35,
+            fontWeight: FontWeight.w700,
+            color: AppColors.ink,
+          ),
         ),
         const SizedBox(height: 5),
         Text(
           '${record['english']}',
-          style: const TextStyle(
-            fontSize: 12,
-            color: CupertinoColors.secondaryLabel,
-          ),
+          style: const TextStyle(fontSize: 12, color: AppColors.secondary),
         ),
         const SizedBox(height: 18),
-        Text(
-          dateRange(record),
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: CupertinoColors.systemBlue,
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.accentSoft,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Text(
+            dateRange(record),
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: AppColors.accent,
+            ),
           ),
         ),
         const SizedBox(height: 8),
@@ -928,7 +958,7 @@ class DynastyDetailsBody extends StatelessWidget {
           style: const TextStyle(
             fontSize: 12,
             height: 1.6,
-            color: CupertinoColors.secondaryLabel,
+            color: AppColors.secondary,
           ),
         ),
         const SizedBox(height: 24),
@@ -938,7 +968,7 @@ class DynastyDetailsBody extends StatelessWidget {
           style: const TextStyle(
             fontSize: 14,
             height: 1.8,
-            color: CupertinoColors.label,
+            color: AppColors.ink,
           ),
         ),
         const SizedBox(height: 24),
@@ -950,7 +980,7 @@ class DynastyDetailsBody extends StatelessWidget {
         const AppSectionHeading('同期政权'),
         const Text(
           '存续年份有交集，不表示始终同时统治。',
-          style: TextStyle(fontSize: 11, color: CupertinoColors.secondaryLabel),
+          style: TextStyle(fontSize: 11, color: AppColors.secondary),
         ),
         const SizedBox(height: 8),
         ...data
@@ -960,10 +990,7 @@ class DynastyDetailsBody extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
                 title: Text(
                   '${r['name']}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: CupertinoColors.systemBlue,
-                  ),
+                  style: const TextStyle(fontSize: 14, color: AppColors.accent),
                 ),
                 trailing: const CupertinoListTileChevron(),
                 onTap: () => onRelated(r),
@@ -1009,7 +1036,7 @@ class SourceTile extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 16),
     child: CupertinoButton(
-      padding: const EdgeInsets.symmetric(vertical: 11),
+      padding: const EdgeInsets.symmetric(vertical: 13),
       onPressed: () => _open(context),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1023,7 +1050,7 @@ class SourceTile extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 13,
                     height: 1.6,
-                    color: CupertinoColors.systemBlue,
+                    color: AppColors.accent,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -1031,7 +1058,7 @@ class SourceTile extends StatelessWidget {
                   Uri.tryParse('${source['url']}')?.host ?? '参考来源',
                   style: const TextStyle(
                     fontSize: 10,
-                    color: CupertinoColors.secondaryLabel,
+                    color: AppColors.secondary,
                   ),
                 ),
               ],

@@ -46,6 +46,7 @@ void main() {
         () => Future<void>.delayed(const Duration(seconds: 2)),
       );
       await tester.pumpAndSettle();
+      expect(find.text('华夏脉络'), findsOneWidget);
       await expectLater(
         find.byType(HuaxiaApp),
         matchesGoldenFile('../qa/territory-${width.toInt()}.png'),

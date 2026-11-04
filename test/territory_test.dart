@@ -172,11 +172,11 @@ void main() {
       tester
           .widget<CupertinoSlider>(find.byKey(const Key('territory-slider')))
           .onChanged!(249);
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
       tester
           .widget<CupertinoSlider>(find.byKey(const Key('territory-slider')))
           .onChanged!(499);
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
       latest.complete(TerritoryYearData([_feature('最新记录', 2)], []));
       await tester.pumpAndSettle();
       first.complete(TerritoryYearData([_feature('过期记录', 1)], []));
@@ -189,7 +189,7 @@ void main() {
       tester
           .widget<CupertinoSlider>(find.byKey(const Key('territory-slider')))
           .onChanged!(749);
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
       failed.completeError(StateError('test failure'));
       await tester.pumpAndSettle();
       expect(find.text('最新记录'), findsNothing);
@@ -197,6 +197,114 @@ void main() {
       expect(find.text('公元 750 年'), findsOneWidget);
     },
   );
+  testWidgets('Cold scrubs coalesce and release flushes only the final year', (
+    tester,
+  ) async {
+    final initial = _feature('保留记录', 11);
+    final repository = _ControlledRepository(initialFeatures: [initial]);
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: TerritoryPage(dynasties: const [], repository: repository),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final canvas = find.byKey(const Key('territory-canvas'));
+    final dynamic initialPainter = tester.widget<CustomPaint>(canvas).painter;
+    final pending = Completer<TerritoryYearData>();
+    repository.pending[1750] = pending;
+    CupertinoSlider slider() => tester.widget<CupertinoSlider>(
+      find.byKey(const Key('territory-slider')),
+    );
+    for (var year = -210; year < 1750; year += 17) {
+      if (year != 0) slider().onChanged!(territoryYearSlider(year).toDouble());
+    }
+    slider().onChanged!(1749);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(repository.years, [1142]);
+    expect(slider().value, 1749);
+    expect(find.byKey(const Key('territory-pending')), findsOneWidget);
+    expect(find.textContaining('地图仍为公元 1142 年'), findsOneWidget);
+    expect(find.text('正在读取来源记录'), findsNothing);
+    expect(find.text('公元 1142 年'), findsOneWidget);
+    final dynamic pendingPainter = tester.widget<CustomPaint>(canvas).painter;
+    expect(identical(initialPainter.active, pendingPainter.active), isTrue);
+    expect(pendingPainter.shouldRepaint(initialPainter), isFalse);
+    slider().onChangeEnd!(1749);
+    await tester.pump();
+    expect(repository.years, [1142, 1750]);
+    pending.complete(TerritoryYearData([_feature('清代记录', 12)], []));
+    await tester.pumpAndSettle();
+    expect(find.text('公元 1750 年'), findsOneWidget);
+    expect(find.text('清代记录'), findsOneWidget);
+    expect(find.byKey(const Key('territory-pending')), findsNothing);
+    // Repeated rounded pointer values/end callback do not reload.
+    slider().onChanged!(1749);
+    slider().onChangeEnd!(1749);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(repository.years, [1142, 1750]);
+  });
+  testWidgets('Warm scrubs commit synchronously without a loading frame', (
+    tester,
+  ) async {
+    final data = TerritoryYearData([_feature('暖缓存记录', 21)], []);
+    final repository = _ControlledRepository(initialFeatures: data.active);
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: TerritoryPage(dynasties: const [], repository: repository),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    repository.cached[1143] = data;
+    tester
+        .widget<CupertinoSlider>(find.byKey(const Key('territory-slider')))
+        .onChanged!(1142);
+    await tester.pump();
+    expect(find.text('公元 1143 年'), findsOneWidget);
+    expect(find.byKey(const Key('territory-pending')), findsNothing);
+    expect(find.text('正在读取来源记录'), findsNothing);
+    expect(repository.years, [1142]);
+  });
+  testWidgets('Old failure cannot erase a newer year and disposal is safe', (
+    tester,
+  ) async {
+    final repository = _ControlledRepository();
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: TerritoryPage(dynasties: const [], repository: repository),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final old = Completer<TerritoryYearData>();
+    repository.pending[250] = old;
+    tester
+        .widget<CupertinoSlider>(find.byKey(const Key('territory-slider')))
+        .onChangeEnd!(249);
+    await tester.pump();
+    tester
+        .widget<CupertinoSlider>(find.byKey(const Key('territory-slider')))
+        .onChangeEnd!(499);
+    await tester.pumpAndSettle();
+    old.completeError(StateError('stale failure'));
+    await tester.pumpAndSettle();
+    expect(find.text('公元 500 年'), findsOneWidget);
+    expect(find.text('重新加载'), findsNothing);
+    final disposed = Completer<TerritoryYearData>();
+    repository.pending[750] = disposed;
+    tester
+        .widget<CupertinoSlider>(find.byKey(const Key('territory-slider')))
+        .onChangeEnd!(749);
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    disposed.complete(TerritoryYearData([], []));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('Map taps use inverse transform; drag and pinch never select', (
     tester,
   ) async {
@@ -446,6 +554,11 @@ class _ControlledRepository extends TerritoryRepository {
   final List<TerritoryFeature> initialFeatures;
   final Map<int, Completer<TerritoryYearData>> pending = {};
   final List<int> years = [];
+  final Map<int, TerritoryYearData> cached = {};
+  @override
+  TerritoryYearData? cachedYear(int year) => cached[year];
+  @override
+  Future<void> prefetchAdjacent(int year) async {}
   @override
   Future<void> initialize() async {
     changes = [-221, 250, 500, 750, 1142, 1200, 1911];

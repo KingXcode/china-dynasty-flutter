@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'history.dart';
+import 'app_style.dart';
 import 'timeline.dart';
 import 'territory.dart';
 
@@ -36,65 +37,67 @@ class HuaxiaApp extends StatelessWidget {
     ],
     theme: const CupertinoThemeData(
       brightness: Brightness.light,
-      primaryColor: CupertinoColors.systemBlue,
-      scaffoldBackgroundColor: CupertinoColors.systemGroupedBackground,
+      primaryColor: AppColors.accent,
+      primaryContrastingColor: AppColors.surface,
+      barBackgroundColor: AppColors.canvas,
+      scaffoldBackgroundColor: AppColors.canvas,
       textTheme: CupertinoTextThemeData(
         textStyle: TextStyle(
           inherit: false,
           fontFamily: 'NotoSansSC',
           fontSize: 15,
-          color: CupertinoColors.label,
+          color: AppColors.ink,
         ),
         navTitleTextStyle: TextStyle(
           inherit: false,
           fontFamily: 'NotoSansSC',
           fontSize: 17,
           fontWeight: FontWeight.w600,
-          color: CupertinoColors.label,
+          color: AppColors.ink,
         ),
         navLargeTitleTextStyle: TextStyle(
           inherit: false,
           fontFamily: 'NotoSansSC',
           fontSize: 30,
           fontWeight: FontWeight.w700,
-          color: CupertinoColors.label,
+          color: AppColors.ink,
         ),
         actionTextStyle: TextStyle(
           inherit: false,
           fontFamily: 'NotoSansSC',
           fontSize: 17,
-          color: CupertinoColors.systemBlue,
+          color: AppColors.accent,
         ),
         actionSmallTextStyle: TextStyle(
           inherit: false,
           fontFamily: 'NotoSansSC',
           fontSize: 15,
-          color: CupertinoColors.systemBlue,
+          color: AppColors.accent,
         ),
         navActionTextStyle: TextStyle(
           inherit: false,
           fontFamily: 'NotoSansSC',
           fontSize: 17,
-          color: CupertinoColors.systemBlue,
+          color: AppColors.accent,
           decoration: TextDecoration.none,
         ),
         pickerTextStyle: TextStyle(
           inherit: false,
           fontFamily: 'NotoSansSC',
           fontSize: 21,
-          color: CupertinoColors.label,
+          color: AppColors.ink,
         ),
         dateTimePickerTextStyle: TextStyle(
           inherit: false,
           fontFamily: 'NotoSansSC',
           fontSize: 21,
-          color: CupertinoColors.label,
+          color: AppColors.ink,
         ),
         tabLabelTextStyle: TextStyle(
           inherit: false,
           fontFamily: 'NotoSansSC',
           fontSize: 10,
-          color: CupertinoColors.inactiveGray,
+          color: AppColors.subtle,
         ),
       ),
     ),
@@ -165,9 +168,11 @@ class _HistoryShellState extends State<HistoryShell> {
       final data = snapshot.data!;
       return CupertinoTabScaffold(
         controller: _tabs,
-        tabBar: CupertinoTabBar(
-          backgroundColor: const Color(0xf5f9f9fb),
-          height: 52,
+        tabBar: AppNavigationDock(
+          textScaler: MediaQuery.textScalerOf(context),
+          height:
+              84 +
+              (MediaQuery.textScalerOf(context).scale(13) - 13).clamp(0, 80),
           items: const [
             BottomNavigationBarItem(
               icon: Icon(CupertinoIcons.clock),
@@ -184,13 +189,23 @@ class _HistoryShellState extends State<HistoryShell> {
         tabBuilder: (context, index) => CupertinoTabView(
           builder: (context) => CupertinoPageScaffold(
             navigationBar: CupertinoNavigationBar(
-              middle: const Text('华夏脉络'),
-              backgroundColor: const Color(0xf5f9f9fb),
+              middle: const Text(
+                '华夏脉络',
+                style: TextStyle(letterSpacing: 2, fontWeight: FontWeight.w700),
+              ),
+              backgroundColor: AppColors.canvas,
+              border: const Border(
+                bottom: BorderSide(color: AppColors.line, width: .5),
+              ),
               trailing: CupertinoButton(
                 padding: EdgeInsets.zero,
-                minimumSize: const Size(40, 40),
+                minimumSize: const Size(44, 44),
                 onPressed: () => showAboutHistory(context, data),
-                child: const Icon(CupertinoIcons.info_circle, size: 22),
+                child: const Icon(
+                  CupertinoIcons.info_circle,
+                  size: 20,
+                  semanticLabel: '阅读说明',
+                ),
               ),
             ),
             child: SafeArea(
@@ -278,7 +293,7 @@ void showAboutHistory(BuildContext context, HistoryData data) {
                             '${t['dateLabel']}',
                             style: const TextStyle(
                               fontSize: 12,
-                              color: CupertinoColors.secondaryLabel,
+                              color: AppColors.secondary,
                             ),
                           ),
                           const SizedBox(height: 10),

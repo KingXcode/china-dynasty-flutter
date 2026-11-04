@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:huaxia_timeline/history.dart';
 import 'package:huaxia_timeline/main.dart';
+import 'package:huaxia_timeline/app_style.dart';
 
 void main() {
   final data = HistoryData(
@@ -23,7 +24,7 @@ void main() {
       await tester.pumpWidget(HuaxiaApp(data: data));
       await tester.pumpAndSettle();
       expect(find.byType(CupertinoApp), findsOneWidget);
-      expect(find.byType(CupertinoTabBar), findsOneWidget);
+      expect(find.byType(AppNavigationDock), findsOneWidget);
       expect(find.text('华夏脉络'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.enterText(find.byType(CupertinoSearchTextField), '中华民国');

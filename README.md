@@ -2,7 +2,9 @@
 
 独立的 Flutter 多端项目：Web、iOS、Android 共用一套 Dart 界面与资料。
 
-界面使用完整 Cupertino 组件体系：iOS 导航栏、底部标签栏、搜索、滑动分段控件、Action Sheet、年份输入与原生风格弹层。不是 Material 换色。
+界面保留 Cupertino 交互体系，并采用统一的瓷白、石墨、深玉与柔和青柠色视觉系统：悬浮胶囊导航、薄边圆角面板、中文探索索引、轻量轨道图形，以及原生搜索、滑动分段控件、Action Sheet、年份输入与导航转场。不是 Material 换色。
+
+胶囊导航继续使用 CupertinoTabScaffold / CupertinoTabView，保留分页面导航栈与状态；支持键盘焦点、选择状态语义、安全区、减少动画及大号文字。文字色与背景保持 WCAG AA 对比度，历史分类色与警告色仍各自保留语义。
 
 - 新仓库：https://github.com/KingXcode/china-dynasty-flutter
 - 新 Web 地址：https://kingxcode.github.io/china-dynasty-flutter/
@@ -14,6 +16,7 @@
 - 原生 Flutter 时间轴：手机采用一屏宽紧凑轨道；桌面使用固定宽度并行轨道与旁侧详情，支持双轴滚动。保留同年对齐、严格等比例刻度、缩放、年代表、搜索、来源与同期政权。
 - 近现代记录保留大陆分期：中华民国（大陆时期）1912–1949，迁台后治理说明保留在注释；中华人民共和国延续至当前年。
 - 原生 CustomPainter 疆域地图：秦至清、原始 GeoJSON、拖动/双指缩放、年份切换、来源变化播放、重叠多边形与可访问列表、年表对照和已知数据问题。
+- 地图拖动年份时优先同步读取已缓存的来源区间；快速跨世纪拖动合并读取，松手立即加载最终目标。新资料未到时保留上一幅地图并同时标出原年份和目标年份，不把旧疆域当作新年份；失败和过期请求不会覆盖当前结果。缓存有界，闲置后预读相邻世纪，地图标签布局复用。
 - 所有历史资料和地图随应用打包，不依赖第三方地图瓦片或 JS。中文显示字体经过子集处理并打包。外部参考来源需联网打开。
 - iOS / Android 标准工程、系统返回键、中文无障碍语义、可调整文字大小；Web 自托管 CanvasKit。
 
@@ -63,6 +66,7 @@ flutter build web --release --base-href /china-dynasty-flutter/ --no-web-resourc
 
 ## 目录
 
+- `lib/app_style.dart`：共享颜色、页面标题与自适应胶囊导航。
 - `lib/history.dart`：数据模型、搜索、无零年算术。
 - `lib/timeline.dart`：手机时间轴、Cupertino 控件、年代表和详情。
 - `lib/desktop_timeline.dart`：桌面并行轨道、折叠刻度、双轴滚动与无障碍。
