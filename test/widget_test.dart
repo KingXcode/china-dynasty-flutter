@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:huaxia_timeline/history.dart';
 import 'package:huaxia_timeline/main.dart';
 import 'package:huaxia_timeline/app_style.dart';
+import 'package:huaxia_timeline/timeline.dart';
 
 void main() {
   final data = HistoryData(
@@ -29,11 +30,17 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.enterText(find.byType(CupertinoSearchTextField), '中华民国');
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('中华民国（大陆时期）').first);
-      await tester.tap(find.text('中华民国（大陆时期）').first);
+      await tester.ensureVisible(find.text('中华民国').last);
+      await tester.tap(find.text('中华民国').last);
       await tester.pumpAndSettle();
-      expect(find.text('纪年说明'), findsOneWidget);
-      expect(find.textContaining('迁至台湾'), findsOneWidget);
+      expect(find.byType(DynastyDetailsBody), findsOneWidget);
+      expect(find.text('1912 — 1949'), findsWidgets);
+      expect(find.text('纪年说明'), findsNothing);
+      expect(find.text('参考来源'), findsNothing);
+      expect(find.textContaining('大陆时期'), findsNothing);
+      expect(find.textContaining('迁至台湾'), findsNothing);
+      expect(find.byType(SourceTile), findsNothing);
+      expect(find.text('同期政权'), findsOneWidget);
       if (width < 1000) {
         await tester.tap(find.text('完成'));
         await tester.pumpAndSettle();
@@ -49,6 +56,33 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets('Other dynasty details preserve notes and source links', (
+    tester,
+  ) async {
+    final qing = data.dynasties.firstWhere((record) => record['id'] == 'qing');
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: SingleChildScrollView(
+            child: DynastyDetailsBody(
+              data: data,
+              record: qing,
+              onRelated: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('纪年说明'), findsOneWidget);
+    expect(find.text(qing['note'] as String), findsOneWidget);
+    expect(find.text('参考来源'), findsOneWidget);
+    expect(
+      find.byType(SourceTile),
+      findsNWidgets((qing['sourceIds'] as List).length),
+    );
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('Cupertino era picker and display sheet preserve actions', (
     tester,
   ) async {

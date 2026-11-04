@@ -961,21 +961,25 @@ class DynastyDetailsBody extends StatelessWidget {
             color: AppColors.secondary,
           ),
         ),
-        const SizedBox(height: 24),
-        const AppSectionHeading('纪年说明'),
-        AppSelectableText(
-          '${record['note']}',
-          style: const TextStyle(
-            fontSize: 14,
-            height: 1.8,
-            color: AppColors.ink,
+        if ((record['note'] as String? ?? '').trim().isNotEmpty) ...[
+          const SizedBox(height: 24),
+          const AppSectionHeading('纪年说明'),
+          AppSelectableText(
+            '${record['note']}',
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.8,
+              color: AppColors.ink,
+            ),
           ),
-        ),
-        const SizedBox(height: 24),
-        const AppSectionHeading('参考来源'),
-        ...data.sources
-            .where((s) => (record['sourceIds'] as List).contains(s['id']))
-            .map((s) => SourceTile(source: s, compact: true)),
+        ],
+        if ((record['sourceIds'] as List).isNotEmpty) ...[
+          const SizedBox(height: 24),
+          const AppSectionHeading('参考来源'),
+          ...data.sources
+              .where((s) => (record['sourceIds'] as List).contains(s['id']))
+              .map((s) => SourceTile(source: s, compact: true)),
+        ],
         const SizedBox(height: 22),
         const AppSectionHeading('同期政权'),
         const Text(

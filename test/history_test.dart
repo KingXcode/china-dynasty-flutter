@@ -14,9 +14,9 @@ void main() {
       currentYear: 2026,
     ),
   );
-  test('102 original records, 56 sources and 13 eras remain complete', () {
+  test('102 original records, 52 sources and 13 eras remain complete', () {
     expect(data.dynasties.length, 102);
-    expect(data.sources.length, 56);
+    expect(data.sources.length, 52);
     expect(data.eras.length, 13);
     expect(data.dynasties.map((r) => r['id']).toSet().length, 102);
     for (final d in data.dynasties) {
@@ -34,16 +34,31 @@ void main() {
     expect(data.dynasties.where((d) => d['group'] == 'five').length, 5);
     expect(data.dynasties.where((d) => d['group'] == 'ten').length, 10);
   });
-  test('no year zero, modern period clarification and ongoing year', () {
+  test('no year zero, modern timeline boundaries and ongoing year', () {
     expect(yearSpan(-1, 1), 1);
     expect(yearSpan(-206, 9), 214);
     expect(yearText(-221), '前221');
     final roc = data.dynasties.firstWhere((d) => d['id'] == 'roc');
-    expect(roc['name'], '中华民国（大陆时期）');
+    expect(roc['name'], '中华民国');
+    expect(roc['start'], 1912);
     expect(roc['end'], 1949);
     expect(roc['ongoing'], isNot(true));
-    expect(roc['note'], contains('迁至台湾'));
-    expect(roc['note'], contains('继续'));
+    expect(roc['note'], isEmpty);
+    expect(roc['sourceIds'], isEmpty);
+    expect(roc['english'], 'Republic of China');
+    expect(data.filter(query: '大陆时期'), isEmpty);
+    for (final id in [
+      'roc-mainland-period',
+      'roc-relocation-1949',
+      'taiwan-current-administration',
+      'hainan-transition-1950',
+    ]) {
+      expect(data.sources.any((source) => source['id'] == id), isFalse);
+    }
+    final prc = data.dynasties.firstWhere((d) => d['id'] == 'prc');
+    expect(prc['start'], 1949);
+    expect(prc['ongoing'], isTrue);
+    expect(prc['sourceIds'], ['prc-founded-1949']);
     final changed = HistoryData(
       jsonDecode(File('assets/history.json').readAsStringSync())
           as Map<String, dynamic>,

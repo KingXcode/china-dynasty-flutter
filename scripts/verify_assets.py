@@ -9,6 +9,6 @@ for name, expected in manifest['files'].items():
  assert actual==expected, f'{name}: source bytes changed'
 data=json.loads((root/'assets/history.json').read_text())
 assert len(data['dynasties'])==102
-assert len(data['sources'])==56
+assert len(data['sources'])==52
 assert len(data['eras'])==13
 print(f"PASS: {len(manifest['files'])} map files preserve original SHA-256; complete timeline data")

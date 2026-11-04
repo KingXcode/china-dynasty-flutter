@@ -19,7 +19,7 @@ for folder in ('lib','assets'):
  for path in (root/folder).rglob('*'):
   if path.suffix in ('.dart','.json','.geojson','.md'):
    text += path.read_text()
-text += '华夏脉络中国历史朝代疆域地图年公元前至今缩放恢复开始暂停上下一年关闭取消确定错误重试加载复制来源许可详情屏幕阅读器阅读说明选择返回搜索清除未找到记录版本十六国五代十国南北朝三国东周战国秦汉隋唐宋元明清中华民国大陆时期中华人民共和国一览华夏纵贯古今地图浏览器资料边界时间范围并行政权原始分片无零年已排除保留没有中国时间轴当前结束继续修改设置语言所有许可证字体自然地球现代陆地轮廓不是古代海岸线名称数量';
+text += '华夏脉络中国历史朝代疆域地图年公元前至今缩放恢复开始暂停上下一年关闭取消确定错误重试加载复制来源许可详情屏幕阅读器阅读说明选择返回搜索清除未找到记录版本十六国五代十国南北朝三国东周战国秦汉隋唐宋元明清中华民国中华人民共和国一览华夏纵贯古今地图浏览器资料边界时间范围并行政权原始分片无零年已排除保留没有中国时间轴当前结束继续修改设置语言所有许可证字体自然地球现代陆地轮廓不是古代海岸线名称数量';
 options = subset.Options(); options.name_IDs = ['*']; options.name_legacy = True
 s = subset.Subsetter(options=options); s.populate(text=text); s.subset(font)
 font.save(root/'assets/fonts/NotoSansSC-Subset.otf')
