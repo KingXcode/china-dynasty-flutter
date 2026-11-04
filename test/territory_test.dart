@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/material.dart';
+
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:huaxia_timeline/territory.dart';
@@ -156,9 +157,9 @@ void main() {
     (tester) async {
       final repository = _ControlledRepository();
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: TerritoryPage(dynasties: const [], repository: repository),
+        CupertinoApp(
+          home: CupertinoPageScaffold(
+            child: TerritoryPage(dynasties: const [], repository: repository),
           ),
         ),
       );
@@ -169,11 +170,11 @@ void main() {
       repository.pending[250] = first;
       repository.pending[500] = latest;
       tester
-          .widget<Slider>(find.byKey(const Key('territory-slider')))
+          .widget<CupertinoSlider>(find.byKey(const Key('territory-slider')))
           .onChanged!(249);
       await tester.pump();
       tester
-          .widget<Slider>(find.byKey(const Key('territory-slider')))
+          .widget<CupertinoSlider>(find.byKey(const Key('territory-slider')))
           .onChanged!(499);
       await tester.pump();
       latest.complete(TerritoryYearData([_feature('最新记录', 2)], []));
@@ -186,7 +187,7 @@ void main() {
       final failed = Completer<TerritoryYearData>();
       repository.pending[750] = failed;
       tester
-          .widget<Slider>(find.byKey(const Key('territory-slider')))
+          .widget<CupertinoSlider>(find.byKey(const Key('territory-slider')))
           .onChanged!(749);
       await tester.pump();
       failed.completeError(StateError('test failure'));
@@ -202,9 +203,9 @@ void main() {
     final feature = _feature('测试政权', 88);
     final repository = _ControlledRepository(initialFeatures: [feature]);
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: TerritoryPage(dynasties: const [], repository: repository),
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: TerritoryPage(dynasties: const [], repository: repository),
         ),
       ),
     );
@@ -255,32 +256,108 @@ void main() {
     (tester) async {
       final repository = _ControlledRepository();
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: TerritoryPage(dynasties: const [], repository: repository),
+        CupertinoApp(
+          home: CupertinoPageScaffold(
+            child: TerritoryPage(dynasties: const [], repository: repository),
           ),
         ),
       );
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('输入年份'));
-      await tester.tap(find.text('输入年份'));
+      await tester.ensureVisible(find.bySemanticsLabel('输入年份'));
+      await tester.tap(find.bySemanticsLabel('输入年份'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '0');
+      await tester.enterText(find.byType(CupertinoTextField), '0');
       await tester.tap(find.text('查看'));
       await tester.pumpAndSettle();
       expect(find.text('请输入前221年至1911年内的整数，没有公元0年。'), findsOneWidget);
       await tester.tap(find.text('公元前'));
-      await tester.enterText(find.byType(TextField), '1');
+      await tester.enterText(find.byType(CupertinoTextField), '1');
       await tester.tap(find.text('查看'));
       await tester.pumpAndSettle();
       expect(find.text('公元前 1 年'), findsOneWidget);
-      await tester.ensureVisible(find.byTooltip('下一年'));
-      await tester.tap(find.byTooltip('下一年'));
+      await tester.ensureVisible(find.bySemanticsLabel('下一年'));
+      await tester.tap(find.bySemanticsLabel('下一年'));
       await tester.pumpAndSettle();
       expect(find.text('公元 1 年'), findsOneWidget);
       expect(repository.years, [1142, -1, 1]);
     },
   );
+  testWidgets('Cupertino map and playback fit the 390px first screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          navigationBar: const CupertinoNavigationBar(middle: Text('疆域随时间')),
+          child: SafeArea(
+            child: TerritoryPage(
+              dynasties: const [],
+              repository: _ControlledRepository(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.getRect(find.byKey(const Key('territory-map'))).height,
+      greaterThanOrEqualTo(250),
+    );
+    expect(tester.getRect(find.text('播放变化')).bottom, lessThan(740));
+    expect(find.byType(CupertinoSlider), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('选择时代'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CupertinoActionSheet), findsOneWidget);
+    await tester.tap(find.text('三国 · 250'));
+    await tester.pumpAndSettle();
+    expect(find.text('公元 250 年'), findsOneWidget);
+  });
+  testWidgets('Cupertino map, detail and year entry fit 390px at 200% text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      CupertinoApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: CupertinoPageScaffold(
+          child: TerritoryPage(
+            dynasties: const [],
+            repository: _ControlledRepository(
+              initialFeatures: [_feature('Western Jin', 77)],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.ensureVisible(find.bySemanticsLabel('输入年份'));
+    await tester.tap(find.bySemanticsLabel('输入年份'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(CupertinoListTile).first);
+    await tester.tap(find.byType(CupertinoListTile).first);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.ensureVisible(find.text('查看缺漏与纪年说明'));
+    await tester.tap(find.text('查看缺漏与纪年说明'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
   for (final width in [320.0, 390.0, 1200.0]) {
     testWidgets('Territory layout fits $width px without overflow', (
       tester,
@@ -290,9 +367,9 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: TerritoryPage(
+        CupertinoApp(
+          home: CupertinoPageScaffold(
+            child: TerritoryPage(
               dynasties: const [],
               repository: _ControlledRepository(),
             ),
@@ -313,9 +390,9 @@ void main() {
     tester,
   ) async {
     final repository = _ControlledRepository();
-    Widget app(bool active) => MaterialApp(
-      home: Scaffold(
-        body: TickerMode(
+    Widget app(bool active) => CupertinoApp(
+      home: CupertinoPageScaffold(
+        child: TickerMode(
           enabled: active,
           child: TerritoryPage(dynasties: const [], repository: repository),
         ),

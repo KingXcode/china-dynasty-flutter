@@ -2,6 +2,8 @@
 
 独立的 Flutter 多端项目：Web、iOS、Android 共用一套 Dart 界面与资料。
 
+界面使用完整 Cupertino 组件体系：iOS 导航栏、底部标签栏、搜索、滑动分段控件、Action Sheet、年份输入与原生风格弹层。不是 Material 换色。
+
 - 新仓库：https://github.com/KingXcode/china-dynasty-flutter
 - 新 Web 地址：https://kingxcode.github.io/china-dynasty-flutter/
 - 原 HTML 项目和原网站保持独立，不被此工程替换或部署。
@@ -9,7 +11,7 @@
 ## 功能
 
 - 102 条王朝与并行政权记录，13 个时代/区域入口，56 项参考来源。
-- 原生 Flutter 时间轴：同年对齐、并行轨道、手机一屏宽布局、紧凑与严格等比例刻度、缩放、完整年代表、全局搜索、详情与同期政权。
+- 原生 Flutter 时间轴：手机采用一屏宽紧凑轨道；桌面使用固定宽度并行轨道与旁侧详情，支持双轴滚动。保留同年对齐、严格等比例刻度、缩放、年代表、搜索、来源与同期政权。
 - 近现代记录保留大陆分期：中华民国（大陆时期）1912–1949，迁台后治理说明保留在注释；中华人民共和国延续至当前年。
 - 原生 CustomPainter 疆域地图：秦至清、原始 GeoJSON、拖动/双指缩放、年份切换、来源变化播放、重叠多边形与可访问列表、年表对照和已知数据问题。
 - 所有历史资料和地图随应用打包，不依赖第三方地图瓦片或 JS。中文显示字体经过子集处理并打包。外部参考来源需联网打开。
@@ -62,7 +64,8 @@ flutter build web --release --base-href /china-dynasty-flutter/ --no-web-resourc
 ## 目录
 
 - `lib/history.dart`：数据模型、搜索、无零年算术。
-- `lib/timeline.dart`：共享年份映射、原生时间轴、年代表和详情。
+- `lib/timeline.dart`：手机时间轴、Cupertino 控件、年代表和详情。
+- `lib/desktop_timeline.dart`：桌面并行轨道、折叠刻度、双轴滚动与无障碍。
 - `lib/territory.dart`：地图资料审计、绘制与操作。
 - `assets/`：完整年表和固定版本地图、许可、字体。
 - `web/`、`android/`、`ios/`：平台入口。

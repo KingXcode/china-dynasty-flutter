@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+
 import 'history.dart';
 import 'timeline.dart';
 import 'territory.dart';
@@ -20,66 +21,98 @@ void main() {
 }
 
 class HuaxiaApp extends StatelessWidget {
-  const HuaxiaApp({super.key, this.data});
+  const HuaxiaApp({super.key, this.data, this.territoryRepository});
   final HistoryData? data;
+  final TerritoryRepository? territoryRepository;
   @override
-  Widget build(BuildContext context) {
-    const ink = Color(0xff284c42);
-    final scheme = ColorScheme.fromSeed(
-      seedColor: ink,
-      surface: const Color(0xfffaf8f1),
-    );
-    return MaterialApp(
-      title: '华夏脉络 · 中国历史',
-      debugShowCheckedModeBanner: false,
-      locale: const Locale('zh', 'CN'),
-      supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: scheme,
-        fontFamily: 'NotoSansSC',
-        scaffoldBackgroundColor: const Color(0xfffaf8f1),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xfffaf8f1),
-          surfaceTintColor: Colors.transparent,
+  Widget build(BuildContext context) => CupertinoApp(
+    title: '华夏脉络 · 中国历史',
+    debugShowCheckedModeBanner: false,
+    locale: const Locale('zh', 'CN'),
+    supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
+    localizationsDelegates: const [
+      GlobalCupertinoLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+    ],
+    theme: const CupertinoThemeData(
+      brightness: Brightness.light,
+      primaryColor: CupertinoColors.systemBlue,
+      scaffoldBackgroundColor: CupertinoColors.systemGroupedBackground,
+      textTheme: CupertinoTextThemeData(
+        textStyle: TextStyle(
+          inherit: false,
+          fontFamily: 'NotoSansSC',
+          fontSize: 15,
+          color: CupertinoColors.label,
         ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          color: const Color(0xfffffdf7),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: const BorderSide(color: Color(0xffe4e4d9)),
-          ),
+        navTitleTextStyle: TextStyle(
+          inherit: false,
+          fontFamily: 'NotoSansSC',
+          fontSize: 17,
+          fontWeight: FontWeight.w600,
+          color: CupertinoColors.label,
         ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white.withValues(alpha: .7),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xffdddcd2)),
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 12,
-          ),
+        navLargeTitleTextStyle: TextStyle(
+          inherit: false,
+          fontFamily: 'NotoSansSC',
+          fontSize: 30,
+          fontWeight: FontWeight.w700,
+          color: CupertinoColors.label,
+        ),
+        actionTextStyle: TextStyle(
+          inherit: false,
+          fontFamily: 'NotoSansSC',
+          fontSize: 17,
+          color: CupertinoColors.systemBlue,
+        ),
+        actionSmallTextStyle: TextStyle(
+          inherit: false,
+          fontFamily: 'NotoSansSC',
+          fontSize: 15,
+          color: CupertinoColors.systemBlue,
+        ),
+        navActionTextStyle: TextStyle(
+          inherit: false,
+          fontFamily: 'NotoSansSC',
+          fontSize: 17,
+          color: CupertinoColors.systemBlue,
+          decoration: TextDecoration.none,
+        ),
+        pickerTextStyle: TextStyle(
+          inherit: false,
+          fontFamily: 'NotoSansSC',
+          fontSize: 21,
+          color: CupertinoColors.label,
+        ),
+        dateTimePickerTextStyle: TextStyle(
+          inherit: false,
+          fontFamily: 'NotoSansSC',
+          fontSize: 21,
+          color: CupertinoColors.label,
+        ),
+        tabLabelTextStyle: TextStyle(
+          inherit: false,
+          fontFamily: 'NotoSansSC',
+          fontSize: 10,
+          color: CupertinoColors.inactiveGray,
         ),
       ),
-      home: HistoryShell(data: data),
-    );
-  }
+    ),
+    home: HistoryShell(data: data, territoryRepository: territoryRepository),
+  );
 }
 
 class HistoryShell extends StatefulWidget {
-  const HistoryShell({super.key, this.data});
+  const HistoryShell({super.key, this.data, this.territoryRepository});
   final HistoryData? data;
+  final TerritoryRepository? territoryRepository;
   @override
   State<HistoryShell> createState() => _HistoryShellState();
 }
 
 class _HistoryShellState extends State<HistoryShell> {
   late Future<HistoryData> _data;
-  int _page = 0;
+  late CupertinoTabController _tabs;
   @override
   void initState() {
     super.initState();
@@ -87,10 +120,19 @@ class _HistoryShellState extends State<HistoryShell> {
         ? Future.value(widget.data)
         : HistoryData.load();
     final uri = Uri.base;
-    if (uri.queryParameters['view'] == 'territory' ||
-        uri.fragment.contains('territory')) {
-      _page = 1;
-    }
+    _tabs = CupertinoTabController(
+      initialIndex:
+          uri.queryParameters['view'] == 'territory' ||
+              uri.fragment.contains('territory')
+          ? 1
+          : 0,
+    );
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
   }
 
   @override
@@ -98,196 +140,238 @@ class _HistoryShellState extends State<HistoryShell> {
     future: _data,
     builder: (context, snapshot) {
       if (snapshot.hasError) {
-        return Scaffold(
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.cloud_off_outlined, size: 42),
-                  const SizedBox(height: 16),
-                  const Text('历史资料暂未载入，请重试。'),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: () => setState(() => _data = HistoryData.load()),
-                    child: const Text('重新载入'),
-                  ),
-                ],
-              ),
+        return CupertinoPageScaffold(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(CupertinoIcons.exclamationmark_circle, size: 36),
+                const SizedBox(height: 16),
+                const Text('历史资料暂未载入'),
+                CupertinoButton(
+                  onPressed: () => setState(() => _data = HistoryData.load()),
+                  child: const Text('重新载入'),
+                ),
+              ],
             ),
           ),
         );
       }
       if (!snapshot.hasData) {
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        return const CupertinoPageScaffold(
+          child: Center(child: CupertinoActivityIndicator()),
+        );
       }
       final data = snapshot.data!;
-      final wide = MediaQuery.sizeOf(context).width >= 1000;
-      final pages = [
-        TimelinePage(data: data),
-        TerritoryPage(dynasties: data.dynasties),
-      ];
-      return Scaffold(
-        appBar: AppBar(
-          title: Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: const Color(0xffa4543b),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: const Text(
-                  '华',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 22,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                '华夏脉络',
-                style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 2),
-              ),
-            ],
-          ),
-          actions: [
-            IconButton(
-              tooltip: '阅读说明与来源',
-              onPressed: () => showAboutHistory(context, data),
-              icon: const Icon(Icons.info_outline),
+      return CupertinoTabScaffold(
+        controller: _tabs,
+        tabBar: CupertinoTabBar(
+          backgroundColor: const Color(0xf5f9f9fb),
+          height: 52,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(CupertinoIcons.clock),
+              activeIcon: Icon(CupertinoIcons.clock_fill),
+              label: '历史脉络',
             ),
-            const SizedBox(width: 8),
+            BottomNavigationBarItem(
+              icon: Icon(CupertinoIcons.map),
+              activeIcon: Icon(CupertinoIcons.map_fill),
+              label: '疆域地图',
+            ),
           ],
         ),
-        body: SafeArea(
-          top: false,
-          child: Row(
-            children: [
-              if (wide)
-                NavigationRail(
-                  selectedIndex: _page,
-                  onDestinationSelected: (value) =>
-                      setState(() => _page = value),
-                  labelType: NavigationRailLabelType.all,
-                  destinations: const [
-                    NavigationRailDestination(
-                      icon: Icon(Icons.account_tree_outlined),
-                      selectedIcon: Icon(Icons.account_tree),
-                      label: Text('历史脉络'),
-                    ),
-                    NavigationRailDestination(
-                      icon: Icon(Icons.map_outlined),
-                      selectedIcon: Icon(Icons.map),
-                      label: Text('疆域随时间'),
-                    ),
-                  ],
-                ),
-              if (wide) const VerticalDivider(width: 1),
-              Expanded(
-                child: IndexedStack(
-                  index: _page,
-                  children: [
-                    pages[0],
-                    TickerMode(enabled: _page == 1, child: pages[1]),
-                  ],
-                ),
+        tabBuilder: (context, index) => CupertinoTabView(
+          builder: (context) => CupertinoPageScaffold(
+            navigationBar: CupertinoNavigationBar(
+              middle: const Text('华夏脉络'),
+              backgroundColor: const Color(0xf5f9f9fb),
+              trailing: CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(40, 40),
+                onPressed: () => showAboutHistory(context, data),
+                child: const Icon(CupertinoIcons.info_circle, size: 22),
               ),
-            ],
+            ),
+            child: SafeArea(
+              bottom: false,
+              child: index == 0
+                  ? TimelinePage(data: data)
+                  : TerritoryPage(
+                      dynasties: data.dynasties,
+                      repository: widget.territoryRepository,
+                    ),
+            ),
           ),
         ),
-        bottomNavigationBar: wide
-            ? null
-            : NavigationBar(
-                selectedIndex: _page,
-                onDestinationSelected: (value) => setState(() => _page = value),
-                destinations: const [
-                  NavigationDestination(
-                    icon: Icon(Icons.account_tree_outlined),
-                    selectedIcon: Icon(Icons.account_tree),
-                    label: '历史脉络',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.map_outlined),
-                    selectedIcon: Icon(Icons.map),
-                    label: '疆域随时间',
-                  ),
-                ],
-              ),
       );
     },
   );
 }
 
 void showAboutHistory(BuildContext context, HistoryData data) {
-  showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (context) => DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: .8,
-      minChildSize: .4,
-      maxChildSize: .95,
-      builder: (context, controller) => ListView(
-        controller: controller,
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
-        children: [
-          Text('怎样阅读华夏脉络', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 16),
-          ...data.meta.entries
-              .where((e) => ['coverage', 'dating', 'regions'].contains(e.key))
-              .map(
-                (e) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text('${e.value}'),
+  Navigator.of(context).push(
+    CupertinoPageRoute<void>(
+      builder: (context) => CupertinoPageScaffold(
+        navigationBar: const CupertinoNavigationBar(
+          middle: Text('阅读说明'),
+          previousPageTitle: '华夏脉络',
+        ),
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+            children: [
+              const AppSectionHeading('有尺度，也保留余地。'),
+              AppGroupedSection(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ...data.meta.entries
+                          .where(
+                            (e) => [
+                              'coverage',
+                              'dating',
+                              'regions',
+                            ].contains(e.key),
+                          )
+                          .map(
+                            (e) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Text(
+                                '${e.value}',
+                                style: const TextStyle(
+                                  height: 1.7,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ),
+                      const Text(
+                        '轨道不代表地理方位、疆域大小或正统地位。同一高度对应同一年；紧凑模式各段比例不同，精确模式关闭压缩。',
+                        style: TextStyle(height: 1.7, fontSize: 14),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-          const Text('图中的轨道不代表地理方位、疆域大小或正统地位。同一高度对应同一年；紧凑模式各段比例不同，精确模式关闭压缩。'),
-          const SizedBox(height: 18),
-          ...data.traditions.map(
-            (t) => Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+              const SizedBox(height: 22),
+              ...data.traditions.map(
+                (t) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: AppGroupedSection(
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${t['name']}',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${t['dateLabel']}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: CupertinoColors.secondaryLabel,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            '${t['note']}',
+                            style: const TextStyle(fontSize: 14, height: 1.7),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              AppSectionHeading('参考资料 · ${data.sources.length} 项'),
+              AppGroupedSection(
+                child: Column(
+                  children: data.sources
+                      .map((s) => SourceTile(source: s))
+                      .toList(),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const AppSectionHeading('开放资料与许可'),
+              AppGroupedSection(
+                child: Column(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.all(18),
+                      child: Text(
+                        '疆域：Cliopatria v0.2.1，CC BY 4.0。底图：Natural Earth，公共领域。资料存在缺漏与年代错位，详见地图逐年说明。字体：Noto Sans CJK，SIL OFL。',
+                        style: TextStyle(fontSize: 14, height: 1.7),
+                      ),
+                    ),
+                    CupertinoListTile(
+                      title: const Text('查看开源许可'),
+                      trailing: const CupertinoListTileChevron(),
+                      onTap: () => Navigator.of(context).push(
+                        CupertinoPageRoute<void>(
+                          builder: (context) => const _LicensesPage(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _LicensesPage extends StatelessWidget {
+  const _LicensesPage();
+  @override
+  Widget build(BuildContext context) => CupertinoPageScaffold(
+    navigationBar: const CupertinoNavigationBar(
+      middle: Text('开源许可'),
+      previousPageTitle: '阅读说明',
+    ),
+    child: SafeArea(
+      child: FutureBuilder<List<LicenseEntry>>(
+        future: LicenseRegistry.licenses.toList(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(child: CupertinoActivityIndicator());
+          }
+          return ListView.builder(
+            itemCount: snapshot.data!.length,
+            itemBuilder: (context, index) {
+              final entry = snapshot.data![index];
+              return Padding(
+                padding: const EdgeInsets.all(18),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${t['name']}',
-                      style: Theme.of(context).textTheme.titleMedium,
+                      entry.packages.join(' · '),
+                      style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
-                    Text('${t['dateLabel']}'),
-                    const SizedBox(height: 8),
-                    Text('${t['note']}'),
+                    const SizedBox(height: 10),
+                    AppSelectableText(
+                      entry.paragraphs.map((p) => p.text).join('\n\n'),
+                      style: const TextStyle(fontSize: 12, height: 1.6),
+                    ),
                   ],
                 ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '参考资料 · ${data.sources.length} 项',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          ...data.sources.map((s) => SourceTile(source: s)),
-          const SizedBox(height: 12),
-          const Text(
-            '疆域：Cliopatria v0.2.1 / CC BY 4.0。底图：Natural Earth，公共领域。原始资料包含缺漏与年代错位，详见地图中的逐年说明。字体：Noto Sans CJK，SIL Open Font License。',
-          ),
-          TextButton(
-            onPressed: () => showLicensePage(
-              context: context,
-              applicationName: '华夏脉络',
-              applicationVersion: '1.0.0',
-            ),
-            child: const Text('查看开源许可'),
-          ),
-        ],
+              );
+            },
+          );
+        },
       ),
     ),
   );

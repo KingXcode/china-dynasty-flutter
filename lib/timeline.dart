@@ -1,7 +1,10 @@
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+
+import 'package:flutter/cupertino.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import 'history.dart';
+import 'desktop_timeline.dart';
 
 const timelineColors = [
   Color(0xffa2573d),
@@ -18,6 +21,33 @@ const timelineColors = [
   Color(0xffae7250),
 ];
 
+class AppGroupedSection extends StatelessWidget {
+  const AppGroupedSection({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(14),
+    child: ColoredBox(color: CupertinoColors.white, child: child),
+  );
+}
+
+class AppSectionHeading extends StatelessWidget {
+  const AppSectionHeading(this.title, {super.key});
+  final String title;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+    child: Text(
+      title,
+      style: const TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+        color: CupertinoColors.secondaryLabel,
+      ),
+    ),
+  );
+}
+
 class TimelinePage extends StatefulWidget {
   const TimelinePage({super.key, required this.data});
   final HistoryData data;
@@ -29,6 +59,7 @@ class _TimelinePageState extends State<TimelinePage> {
   String _era = 'overview', _query = '';
   bool _exact = false, _list = false;
   double _zoom = 1;
+  Map<String, dynamic>? _selected;
   final _search = TextEditingController();
   final _scroll = ScrollController();
   @override
@@ -39,249 +70,463 @@ class _TimelinePageState extends State<TimelinePage> {
   }
 
   void _change(VoidCallback action) {
-    setState(action);
-    if (_scroll.hasClients) _scroll.jumpTo(0);
+    setState(() {
+      action();
+      _selected = null;
+    });
+  }
+
+  Future<void> _pickEra() async {
+    final selected = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('浏览时代'),
+        message: const Text('时代视图同时显示与该时期重叠的政权'),
+        actions: [
+          for (final era in [
+            {'id': 'overview', 'name': '全局主线'},
+            {'id': 'all', 'name': '全部记录'},
+            ...widget.data.eras,
+          ])
+            CupertinoActionSheetAction(
+              isDefaultAction: era['id'] == _era,
+              onPressed: () => Navigator.pop(context, era['id']),
+              child: Text('${era['name']}'),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+      ),
+    );
+    if (selected != null && mounted) {
+      _search.clear();
+      _change(() {
+        _era = selected;
+        _query = '';
+      });
+      if (_scroll.hasClients) _scroll.jumpTo(0);
+    }
+  }
+
+  Future<void> _displayOptions() async {
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, refresh) => CupertinoPopupSurface(
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '显示设置',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      CupertinoButton(
+                        padding: const EdgeInsets.all(8),
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('完成'),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      const Expanded(child: Text('严格等比例刻度')),
+                      CupertinoSwitch(
+                        value: _exact,
+                        onChanged: (value) {
+                          setState(() => _exact = value);
+                          refresh(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 10),
+                    child: Text(
+                      '关闭时压缩没有起讫节点的长时段；无论哪种模式，同一年始终对齐。',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: CupertinoColors.secondaryLabel,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      const Expanded(child: Text('时间轴缩放')),
+                      CupertinoButton(
+                        onPressed: _zoom > .6
+                            ? () {
+                                setState(
+                                  () => _zoom = (_zoom - .2).clamp(.6, 2.2),
+                                );
+                                refresh(() {});
+                              }
+                            : null,
+                        child: const Icon(CupertinoIcons.minus_circle),
+                      ),
+                      Text(
+                        '${(_zoom * 100).round()}%',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      CupertinoButton(
+                        onPressed: _zoom < 2.2
+                            ? () {
+                                setState(
+                                  () => _zoom = (_zoom + .2).clamp(.6, 2.2),
+                                );
+                                refresh(() {});
+                              }
+                            : null,
+                        child: const Icon(CupertinoIcons.plus_circle),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _open(Map<String, dynamic> record, bool desktop) {
+    if (desktop) {
+      setState(() => _selected = record);
+    } else {
+      showDynasty(context, widget.data, record);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.data;
-    final records = data.filter(era: _era, query: _query);
+    final data = widget.data, records = data.filter(era: _era, query: _query);
     final era = data.eras.where((e) => e['id'] == _era).firstOrNull;
     final selectedEra = _query.isEmpty ? era : null;
-    final title = _query.isNotEmpty
+    final label = _query.isNotEmpty
         ? '搜索结果'
-        : era?['name'] as String? ?? (_era == 'all' ? '全部历史记录' : '一览华夏，纵贯古今');
-    return Scrollbar(
+        : era?['name'] as String? ?? (_era == 'all' ? '全部记录' : '全局主线');
+    final desktop = MediaQuery.sizeOf(context).width >= 1000;
+    final segmented = CupertinoSlidingSegmentedControl<bool>(
+      groupValue: _list,
+      onValueChanged: (value) {
+        if (value != null) setState(() => _list = value);
+      },
+      children: const {
+        false: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          child: Text('脉络图', style: TextStyle(fontSize: 14)),
+        ),
+        true: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          child: Text('年代表', style: TextStyle(fontSize: 14)),
+        ),
+      },
+    );
+    final search = CupertinoSearchTextField(
+      controller: _search,
+      placeholder: '搜索朝代、政权或地区',
+      style: const TextStyle(fontFamily: 'NotoSansSC', fontSize: 15),
+      onChanged: (v) => _change(() => _query = v),
+      onSuffixTap: () {
+        _search.clear();
+        _change(() => _query = '');
+      },
+    );
+    return CupertinoScrollbar(
       controller: _scroll,
       child: SingleChildScrollView(
         controller: _scroll,
         key: const PageStorageKey('timeline-scroll'),
-        padding: EdgeInsets.all(
-          MediaQuery.sizeOf(context).width < 500 ? 16 : 28,
+        padding: EdgeInsets.fromLTRB(
+          desktop ? 28 : 16,
+          desktop ? 24 : 16,
+          desktop ? 28 : 16,
+          24,
         ),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1100),
+            constraints: const BoxConstraints(maxWidth: 1280),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'HISTORY, IN PERSPECTIVE',
-                  style: TextStyle(
-                    fontSize: 10,
-                    letterSpacing: 2.6,
-                    color: Color(0xff8b7664),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xff284c42),
-                    letterSpacing: 1,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  era?['description'] as String? ?? '王朝更迭之外，看见同一时代的不同支流。',
-                  style: const TextStyle(color: Color(0xff6e756b), height: 1.7),
-                ),
-                const SizedBox(height: 22),
-                TextField(
-                  controller: _search,
-                  onChanged: (value) => _change(() => _query = value),
-                  decoration: InputDecoration(
-                    hintText: '搜索朝代、政权、地域或注释',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _query.isNotEmpty
-                        ? IconButton(
-                            tooltip: '清除搜索',
-                            onPressed: () {
-                              _search.clear();
-                              _change(() => _query = '');
-                            },
-                            icon: const Icon(Icons.close),
-                          )
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final e in [
-                        {'id': 'overview', 'name': '全局主线'},
-                        {'id': 'all', 'name': '全部记录'},
-                        ...data.eras,
-                      ])
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text('${e['name']}'),
-                            selected: _era == e['id'] && _query.isEmpty,
-                            onSelected: (_) {
-                              _search.clear();
-                              _change(() {
-                                _era = e['id'] as String;
-                                _query = '';
-                              });
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(
-                          value: false,
-                          icon: Icon(Icons.account_tree_outlined, size: 18),
-                          label: Text('脉络图'),
+                    const Expanded(
+                      child: Text(
+                        '历史脉络',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: .2,
                         ),
-                        ButtonSegment(
-                          value: true,
-                          icon: Icon(Icons.view_list_outlined, size: 18),
-                          label: Text('年代表'),
-                        ),
-                      ],
-                      selected: {_list},
-                      onSelectionChanged: (v) =>
-                          setState(() => _list = v.first),
+                      ),
                     ),
-                    if (!_list)
-                      FilterChip(
-                        label: const Text('严格等比例'),
-                        selected: _exact,
-                        onSelected: (value) => _change(() => _exact = value),
+                    if (desktop)
+                      Text(
+                        '102 项记录 · 4,000 余年',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: CupertinoColors.secondaryLabel,
+                        ),
                       ),
-                    if (!_list)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: '缩小时间刻度',
-                            onPressed: _zoom > .6
-                                ? () => setState(
-                                    () => _zoom = (_zoom - .2).clamp(.6, 2.2),
-                                  )
-                                : null,
-                            icon: const Icon(Icons.remove_circle_outline),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '同一个时代，不同的历史支流。',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: CupertinoColors.secondaryLabel,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                if (desktop)
+                  Row(
+                    children: [
+                      SizedBox(width: 230, child: segmented),
+                      const Spacer(),
+                      SizedBox(width: 330, child: search),
+                    ],
+                  )
+                else ...[
+                  search,
+                  const SizedBox(height: 12),
+                  SizedBox(width: double.infinity, child: segmented),
+                ],
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: CupertinoButton(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          minimumSize: const Size(44, 40),
+                          onPressed: _pickEra,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  label,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(CupertinoIcons.chevron_down, size: 13),
+                            ],
                           ),
-                          Text(
-                            '${(_zoom * 100).round()}%',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          IconButton(
-                            tooltip: '放大时间刻度',
-                            onPressed: _zoom < 2.2
-                                ? () => setState(
-                                    () => _zoom = (_zoom + .2).clamp(.6, 2.2),
-                                  )
-                                : null,
-                            icon: const Icon(Icons.add_circle_outline),
-                          ),
-                        ],
+                        ),
                       ),
+                    ),
                     Text(
-                      '${records.length} 条记录',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline,
+                      '${records.length} 项',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: CupertinoColors.secondaryLabel,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    CupertinoButton(
+                      padding: const EdgeInsets.all(8),
+                      minimumSize: const Size(40, 40),
+                      onPressed: _displayOptions,
+                      child: const Icon(
+                        CupertinoIcons.slider_horizontal_3,
+                        size: 22,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 18),
                 if (records.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 64),
-                    child: Center(child: Text('没有找到对应记录，试试其他名称或地域。')),
+                    child: Center(
+                      child: Text(
+                        '没有找到对应记录\n试试其他名称或地域',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: CupertinoColors.secondaryLabel,
+                          height: 1.8,
+                        ),
+                      ),
+                    ),
                   )
                 else if (_list)
-                  ...records.map(
-                    (d) => Card(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 9,
-                        ),
-                        title: Text(
-                          '${d['name']}',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Text('${dateRange(d)}\n${d['region']}'),
-                        isThreeLine: true,
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => showDynasty(context, data, d),
-                      ),
+                  AppGroupedSection(
+                    child: Column(
+                      children: [
+                        for (final record in records)
+                          CupertinoListTile(
+                            title: Text(
+                              '${record['name']}',
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                            subtitle: Text(
+                              '${dateRange(record)} · ${record['region']}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 13,
+                            ),
+                            trailing: const CupertinoListTileChevron(),
+                            onTap: () => showDynasty(context, data, record),
+                          ),
+                      ],
                     ),
                   )
-                else ...[
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xffeaf0e6),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      _exact
-                          ? '等比例刻度：同年对齐。名称以引线连接到准确起点，标签位置不代表年份。'
-                          : '紧凑刻度：所有分支适配一屏宽，同年对齐；各段比例不同。完整起讫年见名称下方。',
-                      style: const TextStyle(
-                        color: Color(0xff3c5c4c),
-                        fontSize: 12,
-                        height: 1.6,
+                else if (desktop)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: AppGroupedSection(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _ChartCaption(
+                                exact: _exact,
+                                era: selectedEra != null,
+                              ),
+                              DesktopTimelineGraph(
+                                records: records,
+                                allRecords: data.dynasties,
+                                start: selectedEra?['start'] as int?,
+                                end: selectedEra?['end'] as int?,
+                                exact: _exact,
+                                zoom: _zoom,
+                                selectedId: _selected?['id'] as String?,
+                                onSelected: (d) => _open(d, true),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
+                      const SizedBox(width: 18),
+                      SizedBox(
+                        width: 286,
+                        child: AppGroupedSection(
+                          child: _selected == null
+                              ? const Padding(
+                                  padding: EdgeInsets.all(22),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Icon(
+                                        CupertinoIcons.hand_draw,
+                                        color: CupertinoColors.systemBlue,
+                                        size: 28,
+                                      ),
+                                      SizedBox(height: 16),
+                                      Text(
+                                        '点选一个朝代',
+                                        style: TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      SizedBox(height: 10),
+                                      Text(
+                                        '查看完整纪年、地域、资料来源与同期政权。',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          height: 1.7,
+                                          color: CupertinoColors.secondaryLabel,
+                                        ),
+                                      ),
+                                      SizedBox(height: 20),
+                                      Text(
+                                        '并行的轨道代表同时存在的政权，不代表地理位置或正统地位。',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          height: 1.7,
+                                          color: CupertinoColors.tertiaryLabel,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : SizedBox(
+                                  height: 696,
+                                  child: SingleChildScrollView(
+                                    child: DynastyDetailsBody(
+                                      data: data,
+                                      record: _selected!,
+                                      onRelated: (r) =>
+                                          setState(() => _selected = r),
+                                    ),
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  AppGroupedSection(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _ChartCaption(exact: _exact, era: selectedEra != null),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final layout = TimelineLayout(
+                                records: records,
+                                start: selectedEra?['start'] as int?,
+                                end: selectedEra?['end'] as int?,
+                                exact: _exact,
+                                zoom: _zoom,
+                                width: constraints.maxWidth,
+                                textScale: MediaQuery.textScalerOf(context)
+                                    .scale(1),
+                              );
+                              return TimelineGraph(
+                                layout: layout,
+                                allRecords: data.dynasties,
+                                onSelected: (d) => _open(d, false),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  if (selectedEra != null)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 8),
-                      child: Text(
-                        '边界箭头表示超出所选时代，不是真实起讫；标签仍显示完整年代。',
-                        style: TextStyle(fontSize: 11),
-                      ),
+                const SizedBox(height: 14),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    '紧凑模式各段比例不同，同年仍对齐。史前文化与传说另列于阅读说明。年代、范围与异说详见每项记录。',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: CupertinoColors.secondaryLabel,
+                      height: 1.7,
                     ),
-                  const SizedBox(height: 14),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final layout = TimelineLayout(
-                        records: records,
-                        start: selectedEra?['start'] as int?,
-                        end: selectedEra?['end'] as int?,
-                        exact: _exact,
-                        zoom: _zoom,
-                        width: constraints.maxWidth,
-                        textScale: MediaQuery.textScalerOf(context).scale(1),
-                      );
-                      return TimelineGraph(
-                        layout: layout,
-                        allRecords: data.dynasties,
-                        onSelected: (d) => showDynasty(context, data, d),
-                      );
-                    },
-                  ),
-                ],
-                const SizedBox(height: 20),
-                const Text(
-                  '朝代、时代分期与现代政体不同。轨道不代表疆域或正统地位；这是一份学习年表，不是穷尽名录。',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Color(0xff7b7c70),
-                    height: 1.6,
                   ),
                 ),
-                const SizedBox(height: 30),
               ],
             ),
           ),
@@ -289,6 +534,27 @@ class _TimelinePageState extends State<TimelinePage> {
       ),
     );
   }
+}
+
+class _ChartCaption extends StatelessWidget {
+  const _ChartCaption({required this.exact, required this.era});
+  final bool exact, era;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    decoration: const BoxDecoration(
+      border: Border(bottom: BorderSide(color: Color(0xffe5e5ea), width: .5)),
+    ),
+    child: Text(
+      '${exact ? '等比例刻度' : '紧凑刻度'} · 同年对齐 · 点按查看${era ? ' · 边界箭头表示超出本时代' : ''}',
+      style: const TextStyle(
+        fontSize: 11,
+        color: CupertinoColors.secondaryLabel,
+        height: 1.5,
+      ),
+    ),
+  );
 }
 
 /// Every track shares this mapping; no bar is lengthened to fit its label.
@@ -305,7 +571,7 @@ class TimelineLayout {
     this.start =
         start ?? records.map((d) => d['start'] as int).reduce(math.min);
     this.end = end ?? records.map((d) => d['end'] as int).reduce(math.max);
-    labelHeight = 56 * textScale.clamp(1, 3);
+    labelHeight = 52 * textScale.clamp(1, 3);
     final starts = <int, int>{};
     final nodes = <int>{this.start, this.end};
     for (final d in records) {
@@ -399,64 +665,63 @@ class TimelineGraph extends StatelessWidget {
             left: layout.labelX,
             right: 0,
             top: item.labelY,
-            height: layout.labelHeight - 5,
+            height: layout.labelHeight - 4,
             child: Semantics(
               button: true,
               label: '${item.record['name']}，${dateRange(item.record)}，查看详情',
               excludeSemantics: true,
               onTap: () => onSelected(item.record),
-              child: Material(
-                color: const Color(0xfffffdf8),
-                borderRadius: BorderRadius.circular(8),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => onSelected(item.record),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 4,
+              child: CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                minimumSize: Size.zero,
+                borderRadius: BorderRadius.circular(7),
+                color: CupertinoColors.white,
+                onPressed: () => onSelected(item.record),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 3,
+                      height: 27,
+                      decoration: BoxDecoration(
+                        color: color(item.record),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 3,
-                          height: 29,
-                          decoration: BoxDecoration(
-                            color: color(item.record),
-                            borderRadius: BorderRadius.circular(2),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${item.record['name']}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: CupertinoColors.label,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 9),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '${item.record['name']}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                dateRange(item.record),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Color(0xff7d7d70),
-                                ),
-                              ),
-                            ],
+                          const SizedBox(height: 2),
+                          Text(
+                            dateRange(item.record),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: CupertinoColors.secondaryLabel,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                    const Icon(
+                      CupertinoIcons.chevron_right,
+                      size: 11,
+                      color: CupertinoColors.tertiaryLabel,
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -475,7 +740,7 @@ class TimelinePainter extends CustomPainter {
     String text,
     Offset offset, {
     double size = 10,
-    Color color = const Color(0xff7d7d70),
+    Color color = const Color(0xff8e8e93),
     double width = 120,
   }) {
     final p = TextPainter(
@@ -510,7 +775,7 @@ class TimelinePainter extends CustomPainter {
           Offset(44, y),
           Offset(size.width, y),
           Paint()
-            ..color = const Color(0xffe4e5d9)
+            ..color = const Color(0xffe5e5ea)
             ..strokeWidth = .7,
         );
         label(canvas, yearText(year), Offset(0, y - 6), width: 44, size: 9);
@@ -548,7 +813,7 @@ class TimelinePainter extends CustomPainter {
       canvas.drawCircle(
         Offset(x, a),
         3.1,
-        Paint()..color = const Color(0xfffffdf7),
+        Paint()..color = const Color(0xffffffff),
       );
       canvas.drawCircle(Offset(x, a), 3.1, paint..strokeWidth = 1.4);
       canvas.drawCircle(Offset(x, b), 2.3, Paint()..color = c);
@@ -592,83 +857,190 @@ class TimelinePainter extends CustomPainter {
 void showDynasty(
   BuildContext context,
   HistoryData data,
-  Map<String, dynamic> d,
+  Map<String, dynamic> record,
 ) {
-  showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    useSafeArea: true,
-    builder: (context) => DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: .72,
-      minChildSize: .35,
-      maxChildSize: .95,
-      builder: (context, controller) => ListView(
-        controller: controller,
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 30),
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  '${d['name']}',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+  Navigator.of(context).push(
+    CupertinoPageRoute<void>(
+      builder: (context) => CupertinoPageScaffold(
+        navigationBar: CupertinoNavigationBar(
+          middle: Text('${record['name']}'),
+          previousPageTitle: '历史脉络',
+          trailing: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: () => Navigator.pop(context),
+            child: const Text('完成'),
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            child: DynastyDetailsBody(
+              data: data,
+              record: record,
+              onRelated: (related) => showDynasty(context, data, related),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class DynastyDetailsBody extends StatelessWidget {
+  const DynastyDetailsBody({
+    super.key,
+    required this.data,
+    required this.record,
+    required this.onRelated,
+  });
+  final HistoryData data;
+  final Map<String, dynamic> record;
+  final ValueChanged<Map<String, dynamic>> onRelated;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(18),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${record['name']}',
+          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          '${record['english']}',
+          style: const TextStyle(
+            fontSize: 12,
+            color: CupertinoColors.secondaryLabel,
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          dateRange(record),
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+            color: CupertinoColors.systemBlue,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '${data.groupName(record['group'] as String)} · ${record['region']}',
+          style: const TextStyle(
+            fontSize: 12,
+            height: 1.6,
+            color: CupertinoColors.secondaryLabel,
+          ),
+        ),
+        const SizedBox(height: 24),
+        const AppSectionHeading('纪年说明'),
+        AppSelectableText(
+          '${record['note']}',
+          style: const TextStyle(
+            fontSize: 14,
+            height: 1.8,
+            color: CupertinoColors.label,
+          ),
+        ),
+        const SizedBox(height: 24),
+        const AppSectionHeading('参考来源'),
+        ...data.sources
+            .where((s) => (record['sourceIds'] as List).contains(s['id']))
+            .map((s) => SourceTile(source: s, compact: true)),
+        const SizedBox(height: 22),
+        const AppSectionHeading('同期政权'),
+        const Text(
+          '存续年份有交集，不表示始终同时统治。',
+          style: TextStyle(fontSize: 11, color: CupertinoColors.secondaryLabel),
+        ),
+        const SizedBox(height: 8),
+        ...data
+            .contemporaries(record)
+            .map(
+              (r) => CupertinoListTile(
+                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+                title: Text(
+                  '${r['name']}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: CupertinoColors.systemBlue,
                   ),
                 ),
+                trailing: const CupertinoListTileChevron(),
+                onTap: () => onRelated(r),
               ),
-              IconButton(
-                tooltip: '关闭详情',
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close),
-              ),
-            ],
-          ),
-          Text(
-            '${d['english']}',
-            style: TextStyle(color: Theme.of(context).colorScheme.outline),
-          ),
-          const SizedBox(height: 14),
-          Text(dateRange(d), style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          Text('${data.groupName(d['group'] as String)} · ${d['region']}'),
-          const SizedBox(height: 22),
-          const Text('纪年说明', style: TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          SelectableText('${d['note']}', style: const TextStyle(height: 1.8)),
-          const SizedBox(height: 22),
-          const Text('参考来源', style: TextStyle(fontWeight: FontWeight.w700)),
-          ...data.sources
-              .where((s) => (d['sourceIds'] as List).contains(s['id']))
-              .map((s) => SourceTile(source: s)),
-          const SizedBox(height: 18),
-          const Text(
-            '同期政权 · 存续年份有交集',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 7,
-            runSpacing: 7,
-            children: data
-                .contemporaries(d)
-                .map(
-                  (r) => ActionChip(
-                    label: Text('${r['name']}'),
-                    onPressed: () {
-                      Navigator.pop(context);
-                      showDynasty(context, data, r);
-                    },
+            ),
+      ],
+    ),
+  );
+}
+
+class SourceTile extends StatelessWidget {
+  const SourceTile({super.key, required this.source, this.compact = false});
+  final Map<String, dynamic> source;
+  final bool compact;
+  Future<void> _open(BuildContext context) async {
+    bool opened = false;
+    try {
+      opened = await launchUrl(
+        Uri.parse(source['url'] as String),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened && context.mounted) {
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('无法打开链接'),
+          content: AppSelectableText('${source['url']}'),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('完成'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 16),
+    child: CupertinoButton(
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      onPressed: () => _open(context),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${source['title']}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.6,
+                    color: CupertinoColors.systemBlue,
                   ),
-                )
-                .toList(),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  Uri.tryParse('${source['url']}')?.host ?? '参考来源',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: CupertinoColors.secondaryLabel,
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 14),
-          const Text(
-            '起讫年相接不表示全年同时统治；具体建立、迁都、失去领土和终结口径见各条注释。',
-            style: TextStyle(fontSize: 11, height: 1.6),
+          const SizedBox(width: 8),
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Icon(CupertinoIcons.arrow_up_right, size: 13),
           ),
         ],
       ),
@@ -676,31 +1048,27 @@ void showDynasty(
   );
 }
 
-class SourceTile extends StatelessWidget {
-  const SourceTile({super.key, required this.source});
-  final Map<String, dynamic> source;
+/// Read-only selectable prose using iOS selection handles and menu.
+class AppSelectableText extends StatefulWidget {
+  const AppSelectableText(this.text, {super.key, this.style});
+  final String text;
+  final TextStyle? style;
   @override
-  Widget build(BuildContext context) => ListTile(
-    contentPadding: EdgeInsets.zero,
-    title: Text('${source['title']}', style: const TextStyle(fontSize: 13)),
-    subtitle: SelectableText(
-      '${source['url']}',
-      style: const TextStyle(fontSize: 10),
-    ),
-    trailing: IconButton(
-      tooltip: '打开参考来源',
-      icon: const Icon(Icons.open_in_new, size: 19),
-      onPressed: () async {
-        final ok = await launchUrl(
-          Uri.parse(source['url'] as String),
-          mode: LaunchMode.externalApplication,
-        );
-        if (!ok && context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('无法打开链接，请复制网址到浏览器。')));
-        }
-      },
-    ),
+  State<AppSelectableText> createState() => _AppSelectableTextState();
+}
+
+class _AppSelectableTextState extends State<AppSelectableText> {
+  final _focus = FocusNode();
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SelectableRegion(
+    focusNode: _focus,
+    selectionControls: cupertinoTextSelectionControls,
+    child: Text(widget.text, style: widget.style),
   );
 }

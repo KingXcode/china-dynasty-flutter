@@ -3,8 +3,9 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -154,9 +155,9 @@ class TerritoryRepository {
     names = data[0];
     audit = data[1];
     changes = territoryChanges(_list(data[2]['records']), audit);
-    land = _list(
-      data[3]['features'],
-    ).map((row) => TerritoryGeometry.fromJson(_map(row['geometry']))).toList();
+    land = _list(data[3]['features'])
+        .map((row) => TerritoryGeometry.fromJson(_map(row['geometry'])))
+        .toList();
     final sorted = names.keys.toList()..sort();
     for (var i = 0; i < sorted.length; i++) {
       _colors[sorted[i]] = HSLColor.fromAHSL(
@@ -242,9 +243,8 @@ class TerritoryRepository {
     final missing = <String>{};
     for (final raw in _list(audit['sourceCoverageGaps'])) {
       final gap = _map(raw);
-      if (_list(
-        gap['missingSourceIntervals'],
-      ).any((range) => _inRange(year, _list(range)))) {
+      if (_list(gap['missingSourceIntervals'])
+          .any((range) => _inRange(year, _list(range)))) {
         missing.add(gap['labelZh'] as String);
       }
     }
@@ -283,6 +283,7 @@ class _TerritoryPageState extends State<TerritoryPage>
   late final TerritoryRepository _repository;
   int _year = 1142, _requestVersion = 0;
   bool _ready = false, _loading = true, _error = false, _playing = false;
+  bool _showWarnings = false, _showMethod = false;
   List<TerritoryFeature> _active = [], _excluded = [];
   TerritoryFeature? _selected;
   Timer? _timer;
@@ -414,7 +415,7 @@ class _TerritoryPageState extends State<TerritoryPage>
 
   Future<void> _jumpToYear() async {
     _stopPlaying();
-    final result = await showDialog<int>(
+    final result = await showCupertinoDialog<int>(
       context: context,
       builder: (context) => _YearDialog(year: _year),
     );
@@ -432,168 +433,261 @@ class _TerritoryPageState extends State<TerritoryPage>
     final timeline = widget.dynasties.where(
       (r) => (r['start'] as num) <= _year && (r['end'] as num) >= _year,
     );
-    return SingleChildScrollView(
-      key: const PageStorageKey('territory-scroll'),
-      padding: EdgeInsets.symmetric(horizontal: wide ? 28 : 16, vertical: 24),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1320),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('疆域随时间', style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 8),
-              const Text('秦至清 · 前221—1911 · 从并立的政权，看历史的分与合'),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xfff1ecdf),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.info_outline,
-                      size: 20,
-                      color: Color(0xff8a6b44),
-                    ),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        '这是来源区间筛选器，不是逐年复原。每年可选，但轮廓仅随来源记录变化；没有插值，也不用相邻年份填补缺失疆域。',
+    return DefaultTextStyle.merge(
+      style: TextStyle(
+        fontSize: 15,
+        height: 1.35,
+        color: CupertinoColors.label.resolveFrom(context),
+      ),
+      child: SingleChildScrollView(
+        key: const PageStorageKey('territory-scroll'),
+        padding: EdgeInsets.fromLTRB(wide ? 28 : 16, 12, wide ? 28 : 16, 28),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1200),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 10),
+                  child: Text(
+                    '秦至清 · 前221—1911',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: CupertinoColors.secondaryLabel.resolveFrom(
+                        context,
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              if (wide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: _mapCard()),
-                    const SizedBox(width: 20),
-                    SizedBox(width: 300, child: _polityPanel()),
+                if (wide)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: _mapCard()),
+                      const SizedBox(width: 20),
+                      SizedBox(width: 320, child: _polityPanel()),
+                    ],
+                  )
+                else
+                  _mapCard(),
+                const SizedBox(height: 14),
+                _section('本年资料提示', [
+                  if (_loading)
+                    Text('正在读取${territoryYearText(_year)}的来源记录…')
+                  else if (_error)
+                    const Text('加载失败，当前不显示疆域。年表仍可阅读，请重试后再判断资料覆盖。')
+                  else ...[
+                    Text(
+                      _excluded.isNotEmpty
+                          ? '${_excluded.length} 条记录因纪年冲突未绘制。缺失疆域没有用其他年份补齐。'
+                          : '${_active.length} 条来源记录。轮廓取自多年区间，并非本年全部边界已经核实。',
+                    ),
+                    CupertinoButton(
+                      padding: const EdgeInsets.only(top: 8),
+                      alignment: Alignment.centerLeft,
+                      minimumSize: const Size(44, 32),
+                      onPressed: () =>
+                          setState(() => _showWarnings = !_showWarnings),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _showWarnings ? '收起缺漏说明' : '查看缺漏与纪年说明',
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          const SizedBox(width: 5),
+                          Icon(
+                            _showWarnings
+                                ? CupertinoIcons.chevron_up
+                                : CupertinoIcons.chevron_down,
+                            size: 12,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_showWarnings)
+                      ..._repository
+                          .warnings(_year, _active, _excluded)
+                          .map(
+                            (text) => Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: Text(
+                                '• $text',
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ),
                   ],
-                )
-              else ...[
-                _mapCard(),
-                const SizedBox(height: 16),
-                _polityPanel(),
-              ],
-              const SizedBox(height: 18),
-              _section('本年资料与缺漏', [
-                if (_loading)
-                  Text('正在读取${territoryYearText(_year)}的来源记录…')
-                else if (_error)
-                  const Text('加载失败，当前不显示疆域。年表对照仍可阅读。请重试后再判断数据覆盖。')
-                else ...[
+                ]),
+                if (!wide) ...[const SizedBox(height: 14), _polityPanel()],
+                const SizedBox(height: 14),
+                _section('同期年表 · ${timeline.length}', [
                   Text(
-                    '已绘 ${_active.length} 条来源记录。轮廓取自各自的多年区间，不表示这些边界在本年都已被精确核实。',
+                    '年表与地图来源不同，以下政权不一定有独立轮廓。',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: CupertinoColors.secondaryLabel.resolveFrom(
+                        context,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 10),
-                  ..._repository
-                      .warnings(_year, _active, _excluded)
-                      .map(
-                        (text) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Text('• $text'),
-                        ),
+                  ...timeline.map(
+                    (record) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 5),
+                      child: Text(
+                        '${record['name']}  ${_period((record['start'] as num).toInt(), (record['end'] as num).toInt())}',
+                        style: const TextStyle(fontSize: 14),
                       ),
-                ],
-              ]),
-              const SizedBox(height: 16),
-              _section('同期年表对照（${timeline.length}）', [
-                const Text('年表收录与地图来源不同。列出的政权不一定有可绘制的独立轮廓。'),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: timeline
-                      .map(
-                        (r) => Chip(
-                          label: Text(
-                            '${r['name']} · ${_period((r['start'] as num).toInt(), (r['end'] as num).toInt())}',
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ]),
-              const SizedBox(height: 16),
-              _section('来源、许可与方法', [
-                const Text(
-                  'Cliopatria / Seshat Global History Databank，固定版本 v0.2.1，CC BY 4.0。选取132个原始名称、877条 POLITY 区间记录；添加中文名称、配色、世纪分片及已知问题说明。保留来源坐标、字段、编号和日期，不按现代国界裁切，不以 Wikidata 身份自动替换。',
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  '底图为 Natural Earth 1:110m Land（公共领域）的现代陆地轮廓，不是古代海岸线，也没有现代国界。墨卡托投影的屏幕面积不可作为真实面积比较。多边形可以重叠，颜色不是排他的主权判定。',
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  '源研究通常排除面积不足5,000平方公里或存续不足50年的政权（有例外），且未编码边界不确定性。本版还存在选取范围的遗漏；没有颜色不代表政权不存在。',
-                ),
-                const SizedBox(height: 8),
-                const Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    _SourceLink(label: '固定版本数据', url: territorySourceUrl),
-                    _SourceLink(
-                      label: 'CC BY 4.0 许可',
-                      url: 'https://creativecommons.org/licenses/by/4.0/',
                     ),
-                    _SourceLink(
-                      label: '研究与方法',
-                      url: 'https://doi.org/10.1038/s41597-025-04516-9',
+                  ),
+                ]),
+                const SizedBox(height: 14),
+                _section('来源与方法', [
+                  const Text(
+                    '这是来源区间筛选器，不是逐年疆域复原。没有插值或形变补间。',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Cliopatria / Seshat v0.2.1 · CC BY 4.0\nNatural Earth 1:110m Land · 公共领域',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  CupertinoButton(
+                    padding: const EdgeInsets.only(top: 8),
+                    alignment: Alignment.centerLeft,
+                    minimumSize: const Size(44, 32),
+                    onPressed: () => setState(() => _showMethod = !_showMethod),
+                    child: Text(
+                      _showMethod ? '收起数据说明' : '阅读完整数据说明',
+                      style: const TextStyle(fontSize: 14),
                     ),
-                    _SourceLink(
-                      label: 'Natural Earth 许可',
-                      url:
-                          'https://www.naturalearthdata.com/about/terms-of-use/',
+                  ),
+                  if (_showMethod) ...[
+                    const SizedBox(height: 10),
+                    const Text(
+                      '固定来源选取132个原始名称、877条 POLITY 区间记录，添加中文名称、配色、世纪分片及问题提示。原始坐标、字段、编号和日期保留，不按现代国界裁切，不以 Wikidata 身份自动替换。',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      '底图为现代陆地轮廓，不是古代海岸线，没有现代国界。墨卡托投影的屏幕面积不可作为真实面积比较。多边形可以重叠，颜色不是排他的主权判定。',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      '源研究通常排除面积不足5,000平方公里或存续不足50年的政权（有例外），且未编码边界不确定性。本版还存在选取范围的遗漏；没有颜色不代表政权不存在。',
+                      style: TextStyle(fontSize: 14),
                     ),
                   ],
-                ),
-              ]),
-            ],
+                  const SizedBox(height: 6),
+                  const Wrap(
+                    spacing: 16,
+                    runSpacing: 2,
+                    children: [
+                      _SourceLink(label: '固定版本', url: territorySourceUrl),
+                      _SourceLink(
+                        label: 'CC BY 4.0',
+                        url: 'https://creativecommons.org/licenses/by/4.0/',
+                      ),
+                      _SourceLink(
+                        label: '研究方法',
+                        url: 'https://doi.org/10.1038/s41597-025-04516-9',
+                      ),
+                      _SourceLink(
+                        label: '底图许可',
+                        url: 'https://www.naturalearthdata.com/about/terms-of-use/',
+                      ),
+                    ],
+                  ),
+                ]),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _mapCard() => Card(
-    margin: EdgeInsets.zero,
+  Future<void> _chooseEra() async {
+    _stopPlaying();
+    final next = await showCupertinoModalPopup<int>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('选择参考年份'),
+        message: const Text('所示为来源区间，不代表完整年度疆域。'),
+        actions: [
+          for (final entry in const <int, String>{
+            -210: '秦朝 · 前210',
+            100: '汉代 · 100',
+            250: '三国 · 250',
+            500: '南北朝 · 500',
+            750: '唐代 · 750',
+            950: '五代十国 · 950',
+            1100: '北宋 · 1100',
+            1142: '宋金并立 · 1142',
+            1320: '元代 · 1320',
+            1400: '明代 · 1400',
+            1750: '清代 · 1750',
+          }.entries)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.pop(context, entry.key),
+              child: Text(entry.value),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+      ),
+    );
+    if (next != null && mounted) await _setYear(next);
+  }
+
+  Widget _mapCard() => Container(
     clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      color: CupertinoColors.secondarySystemGroupedBackground.resolveFrom(
+        context,
+      ),
+      borderRadius: BorderRadius.circular(14),
+    ),
     child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-          child: Wrap(
-            spacing: 16,
-            runSpacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          padding: const EdgeInsets.fromLTRB(14, 8, 10, 6),
+          child: Row(
             children: [
-              Text(
-                territoryYearText(_year),
-                key: const Key('territory-year'),
-                style: Theme.of(context).textTheme.headlineSmall,
+              Expanded(
+                child: CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  alignment: Alignment.centerLeft,
+                  onPressed: _ready ? _jumpToYear : null,
+                  child: Text(
+                    territoryYearText(_year),
+                    key: const Key('territory-year'),
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                      color: CupertinoColors.label.resolveFrom(context),
+                    ),
+                  ),
+                ),
               ),
-              Text(
-                _loading
-                    ? '正在读取资料'
-                    : _error
-                    ? '此年数据未加载'
-                    : '${_active.length} 条来源记录 · 区间示意',
+              _MapIconButton(
+                label: '输入年份',
+                icon: CupertinoIcons.calendar,
+                onPressed: _ready ? _jumpToYear : null,
               ),
             ],
           ),
         ),
         SizedBox(
-          height: MediaQuery.sizeOf(context).width < 600 ? 340 : 480,
+          height: MediaQuery.sizeOf(context).width < 600
+              ? (MediaQuery.sizeOf(context).height * .36).clamp(250.0, 320.0)
+              : 450,
           child: Stack(
             children: [
               Positioned.fill(
@@ -609,7 +703,7 @@ class _TerritoryPageState extends State<TerritoryPage>
               if (_loading || _error)
                 Positioned.fill(
                   child: ColoredBox(
-                    color: const Color(0xece7efec),
+                    color: const Color(0xeee7efec),
                     child: Center(
                       child: Padding(
                         padding: const EdgeInsets.all(24),
@@ -617,22 +711,23 @@ class _TerritoryPageState extends State<TerritoryPage>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             if (_loading) ...[
-                              const CircularProgressIndicator(),
-                              const SizedBox(height: 16),
+                              const CupertinoActivityIndicator(radius: 12),
+                              const SizedBox(height: 12),
                               const Text('正在读取来源记录'),
                             ] else ...[
-                              const Icon(Icons.cloud_off_outlined, size: 36),
+                              const Icon(
+                                CupertinoIcons.exclamationmark_circle,
+                                size: 30,
+                              ),
                               const SizedBox(height: 12),
                               const Text(
                                 '资料未能载入，当前没有绘制疆域。',
                                 textAlign: TextAlign.center,
                               ),
-                              const SizedBox(height: 12),
-                              FilledButton.icon(
+                              CupertinoButton(
                                 onPressed: () =>
                                     _ready ? _setYear(_year) : _initialize(),
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('重新加载'),
+                                child: const Text('重新加载'),
                               ),
                             ],
                           ],
@@ -645,257 +740,327 @@ class _TerritoryPageState extends State<TerritoryPage>
           ),
         ),
         Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
+          padding: const EdgeInsets.symmetric(horizontal: 5),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  IconButton(
-                    tooltip: '上一年',
-                    onPressed: _ready && _year > territoryMinimumYear
-                        ? () => _setYear(
-                            territorySliderYear(territoryYearSlider(_year) - 1),
-                          )
-                        : null,
-                    icon: const Icon(Icons.chevron_left),
-                  ),
-                  Expanded(
-                    child: Slider(
-                      key: const Key('territory-slider'),
-                      min: territoryMinimumYear.toDouble(),
-                      max: (territoryMaximumYear - 1).toDouble(),
-                      divisions:
-                          territoryMaximumYear - 1 - territoryMinimumYear,
-                      value: territoryYearSlider(_year).toDouble(),
-                      label: territoryYearText(_year),
-                      semanticFormatterCallback: (value) =>
-                          territoryYearText(territorySliderYear(value.round())),
-                      onChanged: _ready
-                          ? (value) =>
-                                _setYear(territorySliderYear(value.round()))
-                          : null,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '下一年',
-                    onPressed: _ready && _year < territoryMaximumYear
-                        ? () => _setYear(
-                            territorySliderYear(territoryYearSlider(_year) + 1),
-                          )
-                        : null,
-                    icon: const Icon(Icons.chevron_right),
-                  ),
-                ],
+              _MapIconButton(
+                label: '上一年',
+                icon: CupertinoIcons.chevron_left,
+                onPressed: _ready && _year > territoryMinimumYear
+                    ? () => _setYear(
+                        territorySliderYear(territoryYearSlider(_year) - 1),
+                      )
+                    : null,
               ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                alignment: WrapAlignment.center,
-                children: [
-                  TextButton.icon(
-                    onPressed: _ready && _change(false) != null
-                        ? () => _setYear(_change(false)!)
+              Expanded(
+                child: Semantics(
+                  label: territoryYearText(_year),
+                  child: CupertinoSlider(
+                    key: const Key('territory-slider'),
+                    min: territoryMinimumYear.toDouble(),
+                    max: (territoryMaximumYear - 1).toDouble(),
+                    divisions: territoryMaximumYear - 1 - territoryMinimumYear,
+                    value: territoryYearSlider(_year).toDouble(),
+                    onChanged: _ready
+                        ? (value) =>
+                              _setYear(territorySliderYear(value.round()))
                         : null,
-                    icon: const Icon(Icons.skip_previous, size: 18),
-                    label: const Text('上次变化'),
                   ),
-                  FilledButton.tonalIcon(
-                    onPressed:
-                        _playing ||
-                            (_ready &&
-                                !_loading &&
-                                !_error &&
-                                _change(true) != null)
-                        ? _togglePlaying
-                        : null,
-                    icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
-                    label: Text(_playing ? '暂停' : '播放变化'),
-                  ),
-                  TextButton.icon(
-                    onPressed: _ready && _change(true) != null
-                        ? () => _setYear(_change(true)!)
-                        : null,
-                    icon: const Icon(Icons.skip_next, size: 18),
-                    label: const Text('下次变化'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _ready ? _jumpToYear : null,
-                    icon: const Icon(Icons.edit_calendar, size: 18),
-                    label: const Text('输入年份'),
-                  ),
-                ],
+                ),
               ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                alignment: WrapAlignment.center,
-                children:
-                    [
-                          -210,
-                          100,
-                          250,
-                          500,
-                          750,
-                          950,
-                          1100,
-                          1142,
-                          1320,
-                          1400,
-                          1750,
-                        ]
-                        .map(
-                          (year) => ChoiceChip(
-                            label: Text(_shortYear(year)),
-                            selected: _year == year,
-                            onSelected: _ready ? (_) => _setYear(year) : null,
-                          ),
-                        )
-                        .toList(),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '播放只跳到来源记录或审计区间的变化点，不生成虚构的年度轮廓。',
-                style: Theme.of(context).textTheme.bodySmall,
+              _MapIconButton(
+                label: '下一年',
+                icon: CupertinoIcons.chevron_right,
+                onPressed: _ready && _year < territoryMaximumYear
+                    ? () => _setYear(
+                        territorySliderYear(territoryYearSlider(_year) + 1),
+                      )
+                    : null,
               ),
             ],
           ),
         ),
-        const Divider(height: 1),
-        const Padding(
-          padding: EdgeInsets.all(12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(
+            children: [
+              _MapIconButton(
+                label: '上次变化',
+                icon: CupertinoIcons.backward_end,
+                onPressed: _ready && _change(false) != null
+                    ? () => _setYear(_change(false)!)
+                    : null,
+              ),
+              Expanded(
+                child: CupertinoButton(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 8,
+                  ),
+                  onPressed:
+                      _playing ||
+                          (_ready &&
+                              !_loading &&
+                              !_error &&
+                              _change(true) != null)
+                      ? _togglePlaying
+                      : null,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _playing
+                            ? CupertinoIcons.pause_fill
+                            : CupertinoIcons.play_fill,
+                        size: 17,
+                      ),
+                      const SizedBox(width: 7),
+                      Flexible(
+                        child: Text(
+                          _playing ? '暂停' : '播放变化',
+                          style: const TextStyle(fontSize: 15),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              _MapIconButton(
+                label: '下次变化',
+                icon: CupertinoIcons.forward_end,
+                onPressed: _ready && _change(true) != null
+                    ? () => _setYear(_change(true)!)
+                    : null,
+              ),
+              _MapIconButton(
+                label: '选择时代',
+                icon: CupertinoIcons.ellipsis_circle,
+                onPressed: _ready ? _chooseEra : null,
+              ),
+            ],
+          ),
+        ),
+        const _Hairline(),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 9, 14, 10),
           child: Text(
-            '疆域：Cliopatria / Seshat v0.2.1 · CC BY 4.0｜底图：Natural Earth · 公共领域\n中文标注与区间筛选由本项目加工；原始坐标未简化。',
-            style: TextStyle(fontSize: 11),
+            _loading
+                ? '正在读取来源区间'
+                : _error
+                ? '当前资料未加载'
+                : '${_active.length} 条来源记录 · 非逐年复原',
+            style: TextStyle(
+              fontSize: 12,
+              color: CupertinoColors.secondaryLabel.resolveFrom(context),
+            ),
           ),
         ),
       ],
     ),
   );
+
   Widget _polityPanel() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       if (_selected != null) ...[
         _detail(_selected!),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
       ],
-      Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  '本年来源记录 · ${_active.length}',
-                  style: Theme.of(context).textTheme.titleMedium,
+      Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: CupertinoColors.secondarySystemGroupedBackground.resolveFrom(
+            context,
+          ),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+              child: Text(
+                '本年来源记录 · ${_active.length}',
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 6),
-              if (!_loading && !_error && _active.isEmpty)
+            ),
+            if (!_loading && !_error && _active.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('本版在此年没有可绘制记录。请查看年表对照与缺漏提示。'),
+              ),
+            for (var i = 0; i < _active.length; i++) ...[
+              if (i > 0)
                 const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('本版在此年没有可绘制记录。请查看年表对照与缺漏提示。'),
+                  padding: EdgeInsets.only(left: 44),
+                  child: _Hairline(),
                 ),
-              ..._active.map(
-                (f) => ListTile(
-                  selected: _selected?.id == f.id,
-                  leading: Container(
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: _repository.color(f.name),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
+              CupertinoListTile(
+                key: ValueKey('territory-record-${_active[i].id}'),
+                backgroundColor: _selected?.id == _active[i].id
+                    ? CupertinoColors.systemBlue.withValues(alpha: .07)
+                    : null,
+                leading: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: _repository.color(_active[i].name),
+                    borderRadius: BorderRadius.circular(3),
                   ),
-                  title: Text(_repository.label(f.name)),
-                  subtitle: Text('来源时段 ${_period(f.from, f.to)}'),
-                  trailing: const Icon(Icons.chevron_right, size: 18),
-                  onTap: () => _selectFeature(f),
                 ),
+                title: Text(
+                  _repository.label(_active[i].name),
+                  maxLines: 3,
+                  style: const TextStyle(fontSize: 15),
+                ),
+                subtitle: Text(
+                  '来源 ${_period(_active[i].from, _active[i].to)}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: const CupertinoListTileChevron(),
+                onTap: () => _selectFeature(_active[i]),
               ),
             ],
-          ),
+          ],
         ),
       ),
     ],
   );
-  Widget _detail(TerritoryFeature f) {
-    final identity = _map(_map(_repository.audit['identities'])[f.name]);
+
+  Widget _detail(TerritoryFeature feature) {
+    final identity = _map(_map(_repository.audit['identities'])[feature.name]);
     final ranges = _list(identity['canonicalRanges']);
     final note = identity['note'] ?? identity['chronologyNote'];
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _repository.label(f.name),
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                IconButton(
-                  tooltip: '取消选中',
-                  onPressed: () => setState(() => _selected = null),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-            Text('来源原名：${f.name}'),
-            const SizedBox(height: 12),
-            Text('这块轮廓对应来源区间：${_period(f.from, f.to)}'),
-            const SizedBox(height: 8),
-            Text(
-              '当前筛选${territoryYearText(_year)}。此区间内沿用同一来源轮廓，不能据此推断逐年的真实边界变化。',
-            ),
-            if (ranges.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                '年表纪年参考：${ranges.map((r) => _period((r[0] as num).toInt(), (r[1] as num).toInt())).join('；')}。年表区间不是这块轮廓的有效性认证。',
-              ),
-            ],
-            if (note != null) ...[
-              const SizedBox(height: 8),
-              Text(note.toString()),
-            ],
-            if (f.properties['MemberOf'] != null &&
-                f.properties['MemberOf'].toString().isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                '原数据关系字段：${f.properties['MemberOf']}。仅保留来源记录，不代表本版认定的直接统治关系。',
-              ),
-            ],
-            const SizedBox(height: 12),
-            Text(
-              '固定来源记录 #${f.id} · Cliopatria v0.2.1 · POLITY',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const _SourceLink(label: '查看固定版本来源', url: territorySourceUrl),
-          ],
+    return _section(
+      _repository.label(feature.name),
+      [
+        Text(
+          '来源原名：${feature.name}',
+          style: TextStyle(
+            fontSize: 13,
+            color: CupertinoColors.secondaryLabel.resolveFrom(context),
+          ),
         ),
+        const SizedBox(height: 12),
+        Text(
+          '来源区间：${_period(feature.from, feature.to)}',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '当前筛选${territoryYearText(_year)}。此区间内沿用同一来源轮廓，不能据此推断逐年真实边界。',
+          style: const TextStyle(fontSize: 14),
+        ),
+        if (ranges.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            '年表参考：${ranges.map((r) => _period((r[0] as num).toInt(), (r[1] as num).toInt())).join('；')}。年表区间不是轮廓有效性的认证。',
+            style: const TextStyle(fontSize: 14),
+          ),
+        ],
+        if (note != null) ...[
+          const SizedBox(height: 8),
+          Text(note.toString(), style: const TextStyle(fontSize: 14)),
+        ],
+        if (feature.properties['MemberOf'] != null &&
+            feature.properties['MemberOf'].toString().isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            '原数据关系：${feature.properties['MemberOf']}。仅保留来源记录，不代表本版认定的直接统治关系。',
+            style: const TextStyle(fontSize: 14),
+          ),
+        ],
+        const SizedBox(height: 12),
+        Text(
+          '固定来源 #${feature.id} · Cliopatria v0.2.1 · POLITY',
+          style: TextStyle(
+            fontSize: 12,
+            color: CupertinoColors.secondaryLabel.resolveFrom(context),
+          ),
+        ),
+        const _SourceLink(label: '查看固定版本来源', url: territorySourceUrl),
+      ],
+      trailing: _MapIconButton(
+        label: '取消选中',
+        icon: CupertinoIcons.xmark_circle_fill,
+        onPressed: () => setState(() => _selected = null),
       ),
     );
   }
 
-  Widget _section(String title, List<Widget> children) => Card(
-    margin: EdgeInsets.zero,
-    child: Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          ...children,
-        ],
-      ),
+  Widget _section(String title, List<Widget> children, {Widget? trailing}) =>
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: CupertinoColors.secondarySystemGroupedBackground.resolveFrom(
+            context,
+          ),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (trailing == null)
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                ),
+              )
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  trailing,
+                ],
+              ),
+            const SizedBox(height: 10),
+            ...children,
+          ],
+        ),
+      );
+}
+
+class _Hairline extends StatelessWidget {
+  const _Hairline();
+  @override
+  Widget build(BuildContext context) => Container(
+    height: .5,
+    color: CupertinoColors.separator.resolveFrom(context),
+  );
+}
+
+class _MapIconButton extends StatelessWidget {
+  const _MapIconButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: label,
+    button: true,
+    enabled: onPressed != null,
+    child: CupertinoButton(
+      padding: const EdgeInsets.all(10),
+      minimumSize: const Size(44, 44),
+      onPressed: onPressed,
+      child: ExcludeSemantics(child: Icon(icon, size: 21)),
     ),
   );
 }
@@ -935,40 +1100,62 @@ class _YearDialogState extends State<_YearDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => CupertinoAlertDialog(
     title: const Text('跳转年份'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SegmentedButton<bool>(
-          segments: const [
-            ButtonSegment(value: true, label: Text('公元前')),
-            ButtonSegment(value: false, label: Text('公元')),
-          ],
-          selected: {_bce},
-          onSelectionChanged: (value) => setState(() => _bce = value.first),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          decoration: InputDecoration(
-            labelText: '年份',
-            errorText: _error,
-            errorMaxLines: 3,
+    content: Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(
+        children: [
+          CupertinoSlidingSegmentedControl<bool>(
+            groupValue: _bce,
+            children: const {
+              true: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Text('公元前'),
+              ),
+              false: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Text('公元'),
+              ),
+            },
+            onValueChanged: (value) {
+              if (value != null) setState(() => _bce = value);
+            },
           ),
-          onSubmitted: (_) => _submit(),
-        ),
-      ],
+          const SizedBox(height: 14),
+          CupertinoTextField(
+            controller: _controller,
+            autofocus: true,
+            placeholder: '年份',
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onSubmitted: (_) => _submit(),
+            padding: const EdgeInsets.all(12),
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _error!,
+                style: const TextStyle(
+                  color: CupertinoColors.systemRed,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+        ],
+      ),
     ),
     actions: [
-      TextButton(
+      CupertinoDialogAction(
         onPressed: () => Navigator.pop(context),
         child: const Text('取消'),
       ),
-      FilledButton(onPressed: _submit, child: const Text('查看')),
+      CupertinoDialogAction(
+        isDefaultAction: true,
+        onPressed: _submit,
+        child: const Text('查看'),
+      ),
     ],
   );
 }
@@ -977,9 +1164,18 @@ class _SourceLink extends StatelessWidget {
   const _SourceLink({required this.label, required this.url});
   final String label, url;
   @override
-  Widget build(BuildContext context) => TextButton.icon(
-    icon: const Icon(Icons.open_in_new, size: 15),
-    label: Text(label),
+  Widget build(BuildContext context) => CupertinoButton(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    minimumSize: const Size(44, 32),
+    alignment: Alignment.centerLeft,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(child: Text(label, style: const TextStyle(fontSize: 13))),
+        const SizedBox(width: 5),
+        const Icon(CupertinoIcons.arrow_up_right, size: 12),
+      ],
+    ),
     onPressed: () async {
       bool opened;
       try {
@@ -991,13 +1187,20 @@ class _SourceLink extends StatelessWidget {
         opened = false;
       }
       if (!opened && context.mounted) {
-        showDialog<void>(
+        showCupertinoDialog<void>(
           context: context,
-          builder: (context) => AlertDialog(
+          builder: (context) => CupertinoAlertDialog(
             title: const Text('来源链接'),
-            content: SelectableText('$label\n$url'),
+            content: Text('$label\n$url'),
             actions: [
-              TextButton(
+              CupertinoDialogAction(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: url));
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('复制链接'),
+              ),
+              CupertinoDialogAction(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('关闭'),
               ),
@@ -1176,35 +1379,48 @@ class _TerritoryMapState extends State<_TerritoryMap> {
             ),
             Positioned(
               left: 10,
-              bottom: 8,
-              child: FilledButton.tonalIcon(
-                onPressed: () => setState(() => _labels = !_labels),
-                icon: Icon(_labels ? Icons.label : Icons.label_off, size: 16),
-                label: Text('名称 ${_labels ? '开' : '关'}'),
+              bottom: 10,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xeeffffff),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: _MapIconButton(
+                  label: _labels ? '隐藏名称' : '显示名称',
+                  icon: _labels
+                      ? CupertinoIcons.textformat
+                      : CupertinoIcons.textformat_alt,
+                  onPressed: () => setState(() => _labels = !_labels),
+                ),
               ),
             ),
             Positioned(
               right: 10,
-              bottom: 8,
-              child: Card(
-                margin: EdgeInsets.zero,
+              bottom: 10,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xeeffffff),
+                  borderRadius: BorderRadius.circular(9),
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(
-                      tooltip: '放大地图',
+                    _MapIconButton(
+                      label: '放大地图',
+                      icon: CupertinoIcons.plus,
                       onPressed: () => _changeZoom(1.35),
-                      icon: const Icon(Icons.add),
                     ),
-                    IconButton(
-                      tooltip: '缩小地图',
+                    const SizedBox(width: 30, child: _Hairline()),
+                    _MapIconButton(
+                      label: '缩小地图',
+                      icon: CupertinoIcons.minus,
                       onPressed: () => _changeZoom(1 / 1.35),
-                      icon: const Icon(Icons.remove),
                     ),
-                    IconButton(
-                      tooltip: '重置地图',
+                    const SizedBox(width: 30, child: _Hairline()),
+                    _MapIconButton(
+                      label: '重置地图',
+                      icon: CupertinoIcons.location,
                       onPressed: _reset,
-                      icon: const Icon(Icons.center_focus_strong),
                     ),
                   ],
                 ),
