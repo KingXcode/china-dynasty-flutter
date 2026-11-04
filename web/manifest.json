@@ -1,0 +1,35 @@
+{
+  "name": "华夏脉络",
+  "short_name": "华夏脉络",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#faf8f1",
+  "theme_color": "#284c42",
+  "description": "中国历史朝代、并行政权时间轴与疆域资料",
+  "orientation": "any",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "icons/Icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/Icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/Icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/Icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
